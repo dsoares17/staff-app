@@ -172,7 +172,8 @@ function ReimbursedPill({ reimbursed, onToggle }) {
     <button
       type="button"
       onClick={onToggle}
-      className="rounded-full bg-[#222222] px-2 py-0.5 text-xs font-medium text-[#888888]"
+      className="rounded-full px-2 py-0.5 text-xs font-medium"
+      style={{ backgroundColor: 'rgba(255, 68, 68, 0.2)', color: '#FF4444' }}
     >
       Pendente
     </button>
@@ -507,7 +508,7 @@ export default function JobDetail() {
         {showMoneyZone ? (
           <div
             className="mb-4 rounded-xl p-5"
-            style={{ backgroundColor: '#1A1A1A', border: '1px solid #00FF8730' }}
+            style={{ backgroundColor: '#1A1A1A', border: '1px solid #FFC70030' }}
           >
             {hasPayData(job) ? (
               <>
@@ -563,7 +564,7 @@ export default function JobDetail() {
                 ) : null}
 
                 {payment.status === 'pago' ? (
-                  <p className="mt-3 text-center text-sm text-accent">✓ Pagamento recebido</p>
+                  <p className="mt-3 text-center text-sm text-[#00FF87]">✓ Pagamento recebido</p>
                 ) : null}
 
                 {payment.status === 'por_faturar' || payment.status === 'faturado' ? (
@@ -731,7 +732,7 @@ export default function JobDetail() {
             <button
               type="button"
               onClick={handleMarkAllExpensesReimbursed}
-              className="mt-2 w-full rounded-lg border border-accent bg-[#00FF8720] py-2.5 text-sm font-medium text-accent"
+              className="mt-2 w-full rounded-lg border border-accent bg-[#FFC70020] py-2.5 text-sm font-medium text-accent"
             >
               Marcar todas como reembolsadas ({pendingExpensesCount})
             </button>

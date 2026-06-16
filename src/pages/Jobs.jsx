@@ -23,7 +23,7 @@ const MONTH_NAMES = [
 const WEEK_DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
 const STATUS_CONFIG = {
-  confirmed: { label: 'Confirmado', dot: 'bg-accent' },
+  confirmed: { label: 'Confirmado', dot: 'bg-[#00FF87]' },
   pending: { label: 'Pendente', dot: 'bg-amber-400' },
   completed: { label: 'Concluído', dot: 'bg-neutral-500' },
   cancelled: { label: 'Cancelado', dot: 'bg-danger' },
@@ -38,7 +38,7 @@ const STATUS_DOT_COLORS = {
 
 const PAYMENT_STATUS_CONFIG = {
   por_faturar: { label: 'Por faturar', bg: '#222222', text: '#888888' },
-  faturado: { label: 'Faturado', bg: 'rgba(255, 184, 0, 0.2)', text: '#FFB800' },
+  faturado: { label: 'Faturado', bg: 'rgba(91, 141, 239, 0.2)', text: '#5B8DEF' },
   pago: { label: 'Pago', bg: 'rgba(0, 255, 135, 0.2)', text: '#00FF87' },
   em_atraso: { label: 'Em atraso', bg: 'rgba(255, 68, 68, 0.2)', text: '#FF4444' },
 }
@@ -246,8 +246,7 @@ function ListIcon({ active }) {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="h-5 w-5"
-      style={{ color: active ? '#00FF87' : '#888888' }}
+      className={`h-5 w-5 ${active ? 'text-accent' : 'text-[#888888]'}`}
     >
       <line x1="8" y1="6" x2="21" y2="6" />
       <line x1="8" y1="12" x2="21" y2="12" />
@@ -269,8 +268,7 @@ function CalendarIcon({ active }) {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="h-5 w-5"
-      style={{ color: active ? '#00FF87' : '#888888' }}
+      className={`h-5 w-5 ${active ? 'text-accent' : 'text-[#888888]'}`}
     >
       <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
       <line x1="16" y1="2" x2="16" y2="6" />

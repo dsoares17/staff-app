@@ -13,8 +13,8 @@ export default {
           DEFAULT: '#2A2A2A',
         },
         accent: {
-          DEFAULT: '#00FF87',
-          hover: '#00CC6A',
+          DEFAULT: 'rgb(var(--color-accent-rgb) / <alpha-value>)',
+          hover: 'var(--color-accent-hover)',
         },
         fg: '#FFFFFF',
         muted: '#888888',

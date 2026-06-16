@@ -72,7 +72,7 @@ function ReimbursedPill({ reimbursed, onToggle }) {
     <span
       {...common}
       onClick={onToggle}
-      className="rounded-full bg-[#222222] px-2 py-0.5 text-xs font-medium text-[#888888]"
+      style={{ backgroundColor: 'rgba(255, 68, 68, 0.2)', color: '#FF4444' }}
     >
       Pendente
     </span>
@@ -310,13 +310,13 @@ export default function Expenses() {
             </div>
             <div className="rounded-xl bg-surface p-3">
               <p className="text-xs text-[#888888]">Reembolsado</p>
-              <p className="mt-1 text-base font-semibold text-accent">
+              <p className="mt-1 text-base font-semibold text-[#00FF87]">
                 {formatEuro(summary.reimbursed)}
               </p>
             </div>
             <div className="rounded-xl bg-surface p-3">
               <p className="text-xs text-[#888888]">Pendente</p>
-              <p className="mt-1 text-base font-semibold text-[#FFB800]">
+              <p className="mt-1 text-base font-semibold text-[#FF4444]">
                 {formatEuro(summary.pending)}
               </p>
             </div>

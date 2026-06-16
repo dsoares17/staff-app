@@ -7,7 +7,7 @@ const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', '
 
 const PAYMENT_STATUS_CONFIG = {
   por_faturar: { label: 'Por faturar', bg: '#222222', text: '#888888' },
-  faturado: { label: 'Faturado', bg: 'rgba(255, 184, 0, 0.2)', text: '#FFB800' },
+  faturado: { label: 'Faturado', bg: 'rgba(91, 141, 239, 0.2)', text: '#5B8DEF' },
   pago: { label: 'Pago', bg: 'rgba(0, 255, 135, 0.2)', text: '#00FF87' },
   em_atraso: { label: 'Em atraso', bg: 'rgba(255, 68, 68, 0.2)', text: '#FF4444' },
 }
@@ -231,7 +231,7 @@ export default function Finances() {
           <div className="mb-4 grid grid-cols-3 gap-2 px-4">
             <div className="rounded-xl bg-surface p-3">
               <p className="text-xs text-[#888888]">Recebido</p>
-              <p className="mt-1 text-base font-semibold text-accent">
+              <p className="mt-1 text-base font-semibold text-[#00FF87]">
                 {formatEuroSummary(summary.received)}
               </p>
             </div>
