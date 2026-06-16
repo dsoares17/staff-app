@@ -97,6 +97,9 @@ export default function AddJob() {
   const [location, setLocation] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [timeExpanded, setTimeExpanded] = useState(false)
+  const [startTime, setStartTime] = useState('')
+  const [endTime, setEndTime] = useState('')
   const [notes, setNotes] = useState('')
   const [paymentMode, setPaymentMode] = useState('daily')
   const [workDays, setWorkDays] = useState('')
@@ -198,6 +201,8 @@ export default function AddJob() {
           location: location.trim() || null,
           start_date: startDate,
           end_date: endDate || null,
+          start_time: startTime || null,
+          end_time: endTime || null,
           notes: notes.trim() || null,
           status: 'confirmed',
           work_days: paymentMode === 'daily' ? parsedWorkDays : null,
@@ -333,6 +338,46 @@ export default function AddJob() {
               />
             </label>
           </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (timeExpanded) {
+                setStartTime('')
+                setEndTime('')
+              }
+              setTimeExpanded((open) => !open)
+            }}
+            className="text-sm text-accent"
+          >
+            {timeExpanded ? '− Remover horário' : '+ Adicionar horário'}
+          </button>
+
+          {timeExpanded ? (
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="mb-1.5 block text-sm text-muted">Hora de início</span>
+                <input
+                  className={fieldClass}
+                  style={fieldStyle}
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1.5 block text-sm text-muted">Hora de fim</span>
+                <input
+                  className={fieldClass}
+                  style={fieldStyle}
+                  type="time"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                />
+              </label>
+            </div>
+          ) : null}
 
           <section className="space-y-3">
             <span className="block text-sm text-muted">Remuneração</span>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import heic2any from 'heic2any'
 import { useAuth } from '../context/AuthContext.jsx'
 import { supabase } from '../lib/supabaseClient.js'
 
@@ -46,19 +47,49 @@ function fileToBase64(file) {
   })
 }
 
+function isHeicFile(file) {
+  const type = (file.type || '').toLowerCase()
+  const name = (file.name || '').toLowerCase()
+  return (
+    type === 'image/heic' ||
+    type === 'image/heif' ||
+    name.endsWith('.heic') ||
+    name.endsWith('.heif')
+  )
+}
+
+async function convertHeicToJpeg(file) {
+  const convertedBlob = await heic2any({
+    blob: file,
+    toType: 'image/jpeg',
+    quality: 0.8,
+  })
+
+  const blob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob
+  const fileName = file.name.replace(/\.heic$/i, '.jpg').replace(/\.heif$/i, '.jpg')
+
+  return new File([blob], fileName.endsWith('.jpg') ? fileName : `${fileName}.jpg`, {
+    type: 'image/jpeg',
+  })
+}
+
 export default function AddExpense() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const presetJobId = searchParams.get('jobId')
   const scannerInputRef = useRef(null)
   const galleryInputRef = useRef(null)
 
   const [jobs, setJobs] = useState([])
-  const [jobId, setJobId] = useState('')
+  const [jobId, setJobId] = useState(presetJobId ?? '')
+  const [lockedJobName, setLockedJobName] = useState('')
   const [description, setDescription] = useState('')
   const [amount, setAmount] = useState('')
   const [category, setCategory] = useState('alimentação')
   const [expenseDate, setExpenseDate] = useState(todayISO())
   const [receiptFile, setReceiptFile] = useState(null)
+  const [converting, setConverting] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [scanSuccess, setScanSuccess] = useState(false)
   const [scanError, setScanError] = useState('')
@@ -84,19 +115,53 @@ export default function AddExpense() {
         .order('start_date', { ascending: false })
 
       setJobs(data ?? [])
+
+      if (presetJobId) {
+        setJobId(presetJobId)
+        const found = (data ?? []).find((job) => job.id === presetJobId)
+        if (found) {
+          setLockedJobName(found.event_name)
+        } else {
+          const { data: singleJob } = await supabase
+            .from('staff_app_jobs')
+            .select('event_name')
+            .eq('id', presetJobId)
+            .maybeSingle()
+
+          setLockedJobName(singleJob?.event_name ?? '')
+        }
+      }
     }
 
     fetchJobs()
-  }, [user?.id])
+  }, [user?.id, presetJobId])
 
   async function handleScanReceipt(file) {
     setScanning(true)
+    setConverting(false)
     setScanSuccess(false)
     setScanError('')
 
     try {
-      const base64 = await fileToBase64(file)
-      const mediaType = file.type === 'image/png' ? 'image/png' : 'image/jpeg'
+      let imageFile = file
+      const wasHeic = isHeicFile(file)
+
+      if (wasHeic) {
+        setConverting(true)
+        try {
+          imageFile = await convertHeicToJpeg(file)
+        } catch {
+          setScanError('Não foi possível processar esta imagem. Tenta outra foto.')
+          return
+        } finally {
+          setConverting(false)
+        }
+      }
+
+      setReceiptFile(imageFile)
+
+      const base64 = await fileToBase64(imageFile)
+      const mediaType = wasHeic ? 'image/jpeg' : imageFile.type === 'image/png' ? 'image/png' : 'image/jpeg'
 
       const response = await fetch('/api/anthropic', {
         method: 'POST',
@@ -151,10 +216,7 @@ export default function AddExpense() {
 
   function handleScannerChange(e) {
     const file = e.target.files?.[0]
-    if (file) {
-      setReceiptFile(file)
-      handleScanReceipt(file)
-    }
+    if (file) handleScanReceipt(file)
     e.target.value = ''
   }
 
@@ -243,23 +305,29 @@ export default function AddExpense() {
 
       <form onSubmit={handleSubmit} className="flex flex-col px-4 pb-12">
         <div className="space-y-4">
-          <label className="block">
-            <span className="mb-1.5 block text-sm text-muted">Trabalho</span>
-            <select
-              className={fieldClass}
-              style={fieldStyle}
-              value={jobId}
-              onChange={(e) => setJobId(e.target.value)}
-              required
-            >
-              <option value="">Selecionar trabalho</option>
-              {jobs.map((job) => (
-                <option key={job.id} value={job.id}>
-                  {job.event_name}
-                </option>
-              ))}
-            </select>
-          </label>
+          {presetJobId ? (
+            <p className="text-sm text-fg">
+              Trabalho: {lockedJobName || '…'}
+            </p>
+          ) : (
+            <label className="block">
+              <span className="mb-1.5 block text-sm text-muted">Trabalho</span>
+              <select
+                className={fieldClass}
+                style={fieldStyle}
+                value={jobId}
+                onChange={(e) => setJobId(e.target.value)}
+                required
+              >
+                <option value="">Selecionar trabalho</option>
+                {jobs.map((job) => (
+                  <option key={job.id} value={job.id}>
+                    {job.event_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <div>
             <input
@@ -279,22 +347,28 @@ export default function AddExpense() {
             />
             <button
               type="button"
-              disabled={scanning}
+              disabled={scanning || converting}
               onClick={() => scannerInputRef.current?.click()}
               className="w-full rounded-lg px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
               style={{ backgroundColor: '#A855F7' }}
             >
-              {scanning ? 'A analisar recibo…' : '✨ Digitalizar recibo'}
+              {converting
+                ? 'A converter imagem…'
+                : scanning
+                  ? 'A analisar recibo…'
+                  : '✨ Digitalizar recibo'}
             </button>
             <button
               type="button"
-              disabled={scanning}
+              disabled={scanning || converting}
               onClick={() => galleryInputRef.current?.click()}
               className="mt-2 w-full text-center text-xs text-[#888888] underline disabled:opacity-60"
             >
               Escolher da galeria
             </button>
-            {scanning ? (
+            {converting ? (
+              <p className="mt-2 text-center text-xs text-[#888888]">A converter imagem…</p>
+            ) : scanning ? (
               <p className="mt-2 text-center text-xs text-[#888888]">A analisar recibo…</p>
             ) : null}
             {scanSuccess ? (

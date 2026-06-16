@@ -1,9 +1,26 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 import { supabase } from '../lib/supabaseClient.js'
 
 const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+const MONTH_NAMES = [
+  'Janeiro',
+  'Fevereiro',
+  'Março',
+  'Abril',
+  'Maio',
+  'Junho',
+  'Julho',
+  'Agosto',
+  'Setembro',
+  'Outubro',
+  'Novembro',
+  'Dezembro',
+]
+
+const WEEK_DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
 const STATUS_CONFIG = {
   confirmed: { label: 'Confirmado', dot: 'bg-accent' },
@@ -12,11 +29,29 @@ const STATUS_CONFIG = {
   cancelled: { label: 'Cancelado', dot: 'bg-danger' },
 }
 
+const STATUS_DOT_COLORS = {
+  confirmed: '#00FF87',
+  pending: '#FFB800',
+  completed: '#444444',
+  cancelled: '#FF4444',
+}
+
 const PAYMENT_STATUS_CONFIG = {
   por_faturar: { label: 'Por faturar', bg: '#222222', text: '#888888' },
   faturado: { label: 'Faturado', bg: 'rgba(255, 184, 0, 0.2)', text: '#FFB800' },
   pago: { label: 'Pago', bg: 'rgba(0, 255, 135, 0.2)', text: '#00FF87' },
   em_atraso: { label: 'Em atraso', bg: 'rgba(255, 68, 68, 0.2)', text: '#FF4444' },
+}
+
+function toISODate(date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function todayISO() {
+  return toISODate(new Date())
 }
 
 function formatDateRange(startDate, endDate) {
@@ -36,6 +71,15 @@ function formatDateRange(startDate, endDate) {
   }
 
   return `${fmt(start)} ${start.getFullYear()} — ${fmt(end)} ${end.getFullYear()}`
+}
+
+function formatTimeRange(startTime, endTime) {
+  const fmt = (value) => (value ? String(value).slice(0, 5) : null)
+  const start = fmt(startTime)
+  const end = fmt(endTime)
+
+  if (start && end) return `${start} — ${end}`
+  return start || end
 }
 
 function formatEuro(amount) {
@@ -68,6 +112,59 @@ function getJobPayment(job) {
   return payments
 }
 
+function jobOverlapsDay(job, dayISO) {
+  if (!job.start_date) return false
+  const end = job.end_date || job.start_date
+  return dayISO >= job.start_date && dayISO <= end
+}
+
+function getJobsForDay(jobs, dayISO) {
+  return jobs.filter((job) => jobOverlapsDay(job, dayISO))
+}
+
+function getDayDots(jobs, dayISO) {
+  const dayJobs = getJobsForDay(jobs, dayISO)
+  const dots = dayJobs.slice(0, 3).map(
+    (job) => STATUS_DOT_COLORS[job.status] ?? STATUS_DOT_COLORS.pending
+  )
+  const overflow = dayJobs.length > 3 ? dayJobs.length - 3 : 0
+
+  return { dots, overflow, total: dayJobs.length }
+}
+
+function buildMonthGrid(year, month) {
+  const firstDay = new Date(year, month, 1)
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const startPadding = firstDay.getDay()
+  const cells = []
+
+  const prevMonthLastDay = new Date(year, month, 0).getDate()
+  for (let i = startPadding - 1; i >= 0; i -= 1) {
+    const day = prevMonthLastDay - i
+    cells.push({
+      date: new Date(year, month - 1, day),
+      isCurrentMonth: false,
+    })
+  }
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    cells.push({
+      date: new Date(year, month, day),
+      isCurrentMonth: true,
+    })
+  }
+
+  const trailing = (7 - (cells.length % 7)) % 7
+  for (let day = 1; day <= trailing; day += 1) {
+    cells.push({
+      date: new Date(year, month + 1, day),
+      isCurrentMonth: false,
+    })
+  }
+
+  return cells
+}
+
 function SkeletonCard() {
   return <div className="h-[120px] animate-pulse rounded-xl bg-surface" />
 }
@@ -97,7 +194,7 @@ function PaymentStatusBadge({ status }) {
   )
 }
 
-function JobCard({ job, onClick }) {
+function JobCard({ job, onClick, timeLabel }) {
   const dateRange = formatDateRange(job.start_date, job.end_date)
   const total = getJobTotal(job)
   const totalLabel = total != null ? formatEuro(total) : null
@@ -115,6 +212,7 @@ function JobCard({ job, onClick }) {
 
       <div className="pr-24">
         <h3 className="text-base font-semibold text-fg">{job.event_name}</h3>
+        {timeLabel ? <p className="mt-1 text-xs text-[#888888]">{timeLabel}</p> : null}
         {job.organiser_name ? (
           <p className="mt-1 text-sm text-muted">{job.organiser_name}</p>
         ) : null}
@@ -138,11 +236,206 @@ function JobCard({ job, onClick }) {
   )
 }
 
+function ListIcon({ active }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-5 w-5"
+      style={{ color: active ? '#00FF87' : '#888888' }}
+    >
+      <line x1="8" y1="6" x2="21" y2="6" />
+      <line x1="8" y1="12" x2="21" y2="12" />
+      <line x1="8" y1="18" x2="21" y2="18" />
+      <line x1="3" y1="6" x2="3.01" y2="6" />
+      <line x1="3" y1="12" x2="3.01" y2="12" />
+      <line x1="3" y1="18" x2="3.01" y2="18" />
+    </svg>
+  )
+}
+
+function CalendarIcon({ active }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-5 w-5"
+      style={{ color: active ? '#00FF87' : '#888888' }}
+    >
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  )
+}
+
+function JobsCalendar({ jobs, onJobClick }) {
+  const today = todayISO()
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date()
+    return new Date(now.getFullYear(), now.getMonth(), 1)
+  })
+  const [selectedDay, setSelectedDay] = useState(today)
+
+  const monthCells = useMemo(
+    () => buildMonthGrid(calendarMonth.getFullYear(), calendarMonth.getMonth()),
+    [calendarMonth]
+  )
+
+  const selectedDayJobs = useMemo(
+    () => getJobsForDay(jobs, selectedDay),
+    [jobs, selectedDay]
+  )
+
+  function goToPreviousMonth() {
+    setCalendarMonth(
+      (current) => new Date(current.getFullYear(), current.getMonth() - 1, 1)
+    )
+  }
+
+  function goToNextMonth() {
+    setCalendarMonth(
+      (current) => new Date(current.getFullYear(), current.getMonth() + 1, 1)
+    )
+  }
+
+  return (
+    <div className="mt-4">
+      <div className="mb-4 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={goToPreviousMonth}
+          aria-label="Mês anterior"
+          className="flex h-9 w-9 items-center justify-center rounded-full text-[#888888] active:bg-surface"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-5 w-5"
+          >
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+        </button>
+
+        <h2 className="text-base font-medium text-fg">
+          {MONTH_NAMES[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}
+        </h2>
+
+        <button
+          type="button"
+          onClick={goToNextMonth}
+          aria-label="Mês seguinte"
+          className="flex h-9 w-9 items-center justify-center rounded-full text-[#888888] active:bg-surface"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-5 w-5"
+          >
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </button>
+      </div>
+
+      <div className="mb-2 grid grid-cols-7 gap-1">
+        {WEEK_DAYS.map((day) => (
+          <div
+            key={day}
+            className="py-1 text-center text-xs uppercase tracking-wide text-[#888888]"
+          >
+            {day}
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-1">
+        {monthCells.map((cell) => {
+          const dayISO = toISODate(cell.date)
+          const isToday = dayISO === today
+          const isSelected = dayISO === selectedDay
+          const { dots, overflow } = getDayDots(jobs, dayISO)
+
+          return (
+            <button
+              key={dayISO}
+              type="button"
+              onClick={() => setSelectedDay(dayISO)}
+              className={`flex min-h-[52px] flex-col items-center rounded-lg px-1 py-1.5 transition-colors ${
+                isSelected ? 'bg-[#1A1A1A]' : 'active:bg-surface'
+              }`}
+            >
+              <span
+                className={`flex h-7 w-7 items-center justify-center rounded-full text-sm ${
+                  cell.isCurrentMonth ? 'text-fg' : 'text-[#444444]'
+                } ${isToday ? 'border border-accent' : ''}`}
+              >
+                {cell.date.getDate()}
+              </span>
+
+              <div className="mt-1 flex min-h-[10px] items-center justify-center gap-0.5">
+                {dots.map((color, index) => (
+                  <span
+                    key={`${dayISO}-${index}`}
+                    className="h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: color }}
+                  />
+                ))}
+                {overflow > 0 ? (
+                  <span className="text-[10px] leading-none text-[#888888]">+{overflow}</span>
+                ) : null}
+              </div>
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="mt-4">
+        {selectedDayJobs.length === 0 ? (
+          <p className="py-4 text-center text-sm text-[#888888]">Sem trabalhos neste dia</p>
+        ) : (
+          <div className="space-y-3">
+            {selectedDayJobs.map((job) => (
+              <JobCard
+                key={job.id}
+                job={job}
+                timeLabel={formatTimeRange(job.start_time, job.end_time)}
+                onClick={() => onJobClick(job.id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function Jobs() {
   const { user, loading: authLoading } = useAuth()
   const navigate = useNavigate()
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
+  const [viewMode, setViewMode] = useState('list')
 
   useEffect(() => {
     if (authLoading) return undefined
@@ -194,14 +487,32 @@ export default function Jobs() {
     <div className="relative px-4">
       <header className="flex items-center justify-between pb-2 pt-4">
         <h1 className="text-xl font-semibold">Os meus trabalhos</h1>
-        <button
-          type="button"
-          onClick={handleAddJob}
-          aria-label="Adicionar trabalho"
-          className="flex h-10 w-10 items-center justify-center rounded-full text-2xl text-accent transition-colors active:bg-surface"
-        >
-          +
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setViewMode('list')}
+            aria-label="Vista em lista"
+            className="flex h-10 w-10 items-center justify-center rounded-full transition-colors active:bg-surface"
+          >
+            <ListIcon active={viewMode === 'list'} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('calendar')}
+            aria-label="Vista em calendário"
+            className="flex h-10 w-10 items-center justify-center rounded-full transition-colors active:bg-surface"
+          >
+            <CalendarIcon active={viewMode === 'calendar'} />
+          </button>
+          <button
+            type="button"
+            onClick={handleAddJob}
+            aria-label="Adicionar trabalho"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-2xl text-accent transition-colors active:bg-surface"
+          >
+            +
+          </button>
+        </div>
       </header>
 
       {authLoading || loading ? (
@@ -210,6 +521,8 @@ export default function Jobs() {
           <SkeletonCard />
           <SkeletonCard />
         </div>
+      ) : viewMode === 'calendar' ? (
+        <JobsCalendar jobs={jobs} onJobClick={handleJobClick} />
       ) : jobs.length === 0 ? (
         <div className="mt-8 text-center">
           <p className="text-sm text-muted">
