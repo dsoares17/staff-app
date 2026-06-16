@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg: #0a0a0a;
+  --color-surface: #141414;
+  --color-accent: #00ff87;
+  --color-muted: #888888;
+  --color-border: #222222;
+}
+
+@layer base {
+  html {
+    @apply font-sans antialiased;
+  }
+
+  body {
+    @apply bg-app text-fg;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-semibold text-fg;
+  }
+}
+
+@layer components {
+  .ds-card {
+    @apply rounded-card border border-border bg-surface p-6;
+  }
+
+  .ds-input {
+    @apply w-full min-h-[44px] rounded-control border border-border bg-app px-3 py-2.5 text-sm text-fg placeholder:text-placeholder outline-none transition focus:border-accent;
+  }
+
+  .ds-btn {
+    @apply inline-flex min-h-[44px] items-center justify-center rounded-control px-5 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .ds-btn-primary {
+    @apply ds-btn bg-accent text-app hover:bg-accent-hover;
+  }
+
+  .ds-alert-danger {
+    @apply rounded-control border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger;
+  }
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
