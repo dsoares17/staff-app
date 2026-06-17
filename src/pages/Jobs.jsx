@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
+import { formatEuro, roundMoney } from '../lib/money.js'
 import { supabase } from '../lib/supabaseClient.js'
 
 const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -82,27 +83,16 @@ function formatTimeRange(startTime, endTime) {
   return start || end
 }
 
-function formatEuro(amount) {
-  if (amount == null || amount <= 0) return null
-
-  const fixed = amount.toFixed(2)
-  const [intPart, decPart] = fixed.split('.')
-  const withDots = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-
-  if (decPart === '00') return `€${withDots}`
-  return `€${withDots},${decPart}`
-}
-
 function getJobTotal(job) {
   if (job.flat_total != null && Number(job.flat_total) > 0) {
-    return Number(job.flat_total)
+    return roundMoney(job.flat_total)
   }
 
-  const work = (job.work_days ?? 0) * (job.work_rate ?? 0)
-  const travel = (job.travel_days ?? 0) * (job.travel_rate ?? 0)
-  const total = work + travel
+  const work = roundMoney((job.work_days ?? 0) * (job.work_rate ?? 0)) ?? 0
+  const travel = roundMoney((job.travel_days ?? 0) * (job.travel_rate ?? 0)) ?? 0
+  const total = roundMoney(work + travel)
 
-  return total > 0 ? total : null
+  return total != null && total > 0 ? total : null
 }
 
 function getJobPayment(job) {

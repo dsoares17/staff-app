@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { formatEuro, formatEuroWhole, roundMoney } from '../lib/money.js'
 import { supabase } from '../lib/supabaseClient.js'
 
 const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -43,10 +44,7 @@ function toISODate(value) {
 }
 
 function formatExpenseAmount(amount) {
-  if (amount == null || Number(amount) <= 0) return '€0'
-  const rounded = Math.round(Number(amount))
-  const withDots = String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-  return `€${withDots}`
+  return formatEuroWhole(amount)
 }
 
 function formatExpenseDate(date) {
@@ -81,25 +79,17 @@ function formatDate(value) {
   return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`
 }
 
-function formatEuro(amount) {
-  if (amount == null || Number(amount) <= 0) return null
-  const fixed = Number(amount).toFixed(2)
-  const [intPart, decPart] = fixed.split('.')
-  const withDots = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-  if (decPart === '00') return `€${withDots}`
-  return `€${withDots},${decPart}`
-}
-
 function calcReceivableTotal(job) {
   if (job.flat_total != null && Number(job.flat_total) > 0) {
-    return Number(job.flat_total)
+    return roundMoney(job.flat_total)
   }
 
-  const work = (job.work_days ?? 0) * (job.work_rate ?? 0)
-  const travel = (job.transport_travel_days ?? 0) * (job.transport_travel_rate ?? 0)
-  const total = work + travel
+  const work = roundMoney((job.work_days ?? 0) * (job.work_rate ?? 0)) ?? 0
+  const travel =
+    roundMoney((job.transport_travel_days ?? 0) * (job.transport_travel_rate ?? 0)) ?? 0
+  const total = roundMoney(work + travel)
 
-  return total > 0 ? total : null
+  return total != null && total > 0 ? total : null
 }
 
 function hasPayData(job) {
@@ -270,7 +260,7 @@ export default function JobDetail() {
     updatePaymentStatus({
       status: 'pago',
       paid_at: new Date().toISOString(),
-      paid_amount: payment?.expected_amount ?? null,
+      paid_amount: roundMoney(payment?.expected_amount),
     })
   }
 
@@ -367,7 +357,7 @@ export default function JobDetail() {
     setExpenseEditBusy(true)
 
     try {
-      const nextAmount = expenseEditForm.amount ? parseFloat(expenseEditForm.amount) : null
+      const nextAmount = expenseEditForm.amount ? roundMoney(parseFloat(expenseEditForm.amount)) : null
       if (!expenseEditForm.description.trim()) throw new Error('A descrição é obrigatória.')
       if (nextAmount == null || Number.isNaN(nextAmount)) throw new Error('O valor é obrigatório.')
       if (!expenseEditForm.expenseDate) throw new Error('A data é obrigatória.')
@@ -452,12 +442,14 @@ export default function JobDetail() {
     job.transport_type === 'reimbursement' &&
     job.transport_km_rate != null &&
     job.transport_kms != null
-      ? Number(job.transport_km_rate) * Number(job.transport_kms) +
-        (Number(job.transport_tolls) || 0)
+      ? roundMoney(
+          Number(job.transport_km_rate) * Number(job.transport_kms) +
+            (Number(job.transport_tolls) || 0)
+        )
       : null
   const mealsTotal =
     job.meals_type === 'allowance' && job.meals_rate != null && job.meals_count != null
-      ? Number(job.meals_rate) * Number(job.meals_count)
+      ? roundMoney(Number(job.meals_rate) * Number(job.meals_count))
       : null
 
   return (

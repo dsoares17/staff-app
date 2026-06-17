@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
+import { formatEuroWhole, roundMoney } from '../lib/money.js'
 import { supabase } from '../lib/supabaseClient.js'
 
 const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -14,10 +15,7 @@ const CATEGORIES = [
 ]
 
 function formatEuro(amount) {
-  if (amount == null || Number(amount) <= 0) return '€0'
-  const rounded = Math.round(Number(amount))
-  const withDots = String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-  return `€${withDots}`
+  return formatEuroWhole(amount)
 }
 
 function formatExpenseDate(date) {
@@ -135,7 +133,7 @@ export default function Expenses() {
     let pending = 0
 
     for (const expense of expenses) {
-      const amount = Number(expense.amount) || 0
+      const amount = roundMoney(expense.amount) ?? 0
       total += amount
       if (expense.reimbursed) {
         reimbursed += amount
@@ -144,7 +142,11 @@ export default function Expenses() {
       }
     }
 
-    return { total, reimbursed, pending }
+    return {
+      total: roundMoney(total) ?? 0,
+      reimbursed: roundMoney(reimbursed) ?? 0,
+      pending: roundMoney(pending) ?? 0,
+    }
   }, [expenses])
 
   const groupedExpenses = useMemo(() => {
@@ -248,7 +250,7 @@ export default function Expenses() {
     setEditBusy(true)
 
     try {
-      const nextAmount = editForm.amount ? parseFloat(editForm.amount) : null
+      const nextAmount = editForm.amount ? roundMoney(parseFloat(editForm.amount)) : null
       if (!editForm.description.trim()) throw new Error('A descrição é obrigatória.')
       if (nextAmount == null || Number.isNaN(nextAmount)) throw new Error('O valor é obrigatório.')
       if (!editForm.expenseDate) throw new Error('A data é obrigatória.')

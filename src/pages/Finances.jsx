@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
+import { formatEuroWhole, roundMoney } from '../lib/money.js'
 import { supabase } from '../lib/supabaseClient.js'
 
 const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -31,35 +32,30 @@ function getJobPayment(job) {
 
 function calcJobTotal(job) {
   if (job.flat_total != null && Number(job.flat_total) > 0) {
-    return Number(job.flat_total)
+    return roundMoney(job.flat_total)
   }
 
-  const work = (job.work_days ?? 0) * (job.work_rate ?? 0)
-  const travel = (job.transport_travel_days ?? 0) * (job.transport_travel_rate ?? 0)
-  const total = work + travel
+  const work = roundMoney((job.work_days ?? 0) * (job.work_rate ?? 0)) ?? 0
+  const travel =
+    roundMoney((job.transport_travel_days ?? 0) * (job.transport_travel_rate ?? 0)) ?? 0
+  const total = roundMoney(work + travel)
 
-  if (total > 0) return total
+  if (total != null && total > 0) return total
 
   const payment = getJobPayment(job)
   if (payment?.expected_amount != null && Number(payment.expected_amount) > 0) {
-    return Number(payment.expected_amount)
+    return roundMoney(payment.expected_amount)
   }
 
   return null
 }
 
 function formatEuroSummary(amount) {
-  if (amount == null || Number(amount) <= 0) return '€0'
-  const rounded = Math.round(Number(amount))
-  const withDots = String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-  return `€${withDots}`
+  return formatEuroWhole(amount)
 }
 
 function formatEuroRow(amount) {
-  if (amount == null || Number(amount) <= 0) return '€0'
-  const rounded = Math.round(Number(amount))
-  const withDots = String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-  return `€${withDots}`
+  return formatEuroWhole(amount)
 }
 
 function formatMonthYear(startDate) {
@@ -151,8 +147,8 @@ export default function Finances() {
       const payment = getJobPayment(job)
       if (!payment) continue
 
-      const expected = Number(payment.expected_amount) || 0
-      const paid = Number(payment.paid_amount) || 0
+      const expected = roundMoney(payment.expected_amount) ?? 0
+      const paid = roundMoney(payment.paid_amount) ?? 0
 
       if (payment.status === 'pago') {
         received += paid > 0 ? paid : expected
@@ -163,7 +159,11 @@ export default function Finances() {
       }
     }
 
-    return { received, pending, overdue }
+    return {
+      received: roundMoney(received) ?? 0,
+      pending: roundMoney(pending) ?? 0,
+      overdue: roundMoney(overdue) ?? 0,
+    }
   }, [jobs])
 
   const filteredJobs = useMemo(() => {
@@ -276,7 +276,7 @@ export default function Finances() {
             ) : (
               filteredJobs.map((job) => {
                 const payment = getJobPayment(job)
-                const amount = calcJobTotal(job) ?? payment?.expected_amount ?? 0
+                const amount = calcJobTotal(job) ?? roundMoney(payment?.expected_amount) ?? 0
                 const dateLabel = formatMonthYear(job.start_date)
 
                 return (
