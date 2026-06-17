@@ -873,6 +873,15 @@ export default function Jobs() {
           ) : null}
           <button
             type="button"
+            onClick={() => navigate('/jobs/import')}
+            aria-label="Importar trabalhos"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-lg transition-colors active:bg-surface"
+            style={{ color: '#A855F7' }}
+          >
+            ✨
+          </button>
+          <button
+            type="button"
             onClick={handleAddJob}
             aria-label="Adicionar trabalho"
             className="flex h-10 w-10 items-center justify-center rounded-full text-2xl text-accent transition-colors active:bg-surface"

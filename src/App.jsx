@@ -8,6 +8,8 @@ import Jobs from './pages/Jobs.jsx'
 import JobDetail from './pages/JobDetail.jsx'
 import AddJob from './pages/AddJob.jsx'
 import EditJob from './pages/EditJob.jsx'
+import ImportJobs from './pages/ImportJobs.jsx'
+import ImportReview from './pages/ImportReview.jsx'
 import Finances from './pages/Finances.jsx'
 import Expenses from './pages/Expenses.jsx'
 import AddExpense from './pages/AddExpense.jsx'
@@ -29,6 +31,8 @@ export default function App() {
             }
           >
             <Route path="/jobs" element={<Jobs />} />
+            <Route path="/jobs/import" element={<ImportJobs />} />
+            <Route path="/jobs/import/review" element={<ImportReview />} />
             <Route path="/jobs/new" element={<AddJob />} />
             <Route path="/jobs/:id/edit" element={<EditJob />} />
             <Route path="/jobs/:id" element={<JobDetail />} />
