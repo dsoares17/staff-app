@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import heic2any from 'heic2any'
 import * as XLSX from 'xlsx'
 
 const CURRENT_YEAR = new Date().getFullYear()
@@ -47,6 +48,68 @@ Texto a analisar:
 ${text}
 
 Responde APENAS com o array JSON, sem texto adicional, sem markdown.`
+}
+
+function buildPhotoImportPrompt() {
+  return `Esta imagem mostra uma agenda, calendário, notas ou horário de trabalhos de um freelancer de eventos (pode ser um print de uma app de notas, calendário do telemóvel, ou papel escrito à mão). Analisa a imagem e extrai cada trabalho/evento mencionado. Devolve um array JSON com esta estrutura para cada trabalho:
+{
+  event_name: string,
+  organiser_name: string ou null,
+  role: string ou null,
+  location: string ou null,
+  start_date: string formato YYYY-MM-DD,
+  end_date: string formato YYYY-MM-DD ou null,
+  payment_mode: 'daily' ou 'flat',
+  rate: number ou null,
+  notes: string ou null
+}
+
+REGRAS IMPORTANTES:
+- Se o valor mencionado tiver indicação explícita de ser por dia, usa payment_mode 'daily'. Caso contrário, assume 'flat'.
+- Se não conseguires ler uma data ou valor com confiança, usa null nesse campo — não inventes informação.
+- O ano atual é ${CURRENT_YEAR}. Se não houver ano visível na imagem, assume o ano atual.
+- Se a imagem não contiver informação relevante sobre trabalhos/eventos, devolve um array vazio [].
+
+Responde APENAS com o array JSON, sem texto adicional, sem markdown.`
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result
+      const base64 = String(result).split(',')[1]
+      resolve(base64)
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+function isHeicFile(file) {
+  const type = (file.type || '').toLowerCase()
+  const name = (file.name || '').toLowerCase()
+  return (
+    type === 'image/heic' ||
+    type === 'image/heif' ||
+    name.endsWith('.heic') ||
+    name.endsWith('.heif')
+  )
+}
+
+async function convertHeicToJpeg(file) {
+  const convertedBlob = await heic2any({
+    blob: file,
+    toType: 'image/jpeg',
+    quality: 0.8,
+  })
+
+  const blob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob
+  const fileName = file.name.replace(/\.heic$/i, '.jpg').replace(/\.heif$/i, '.jpg')
+
+  return new File([blob], fileName.endsWith('.jpg') ? fileName : `${fileName}.jpg`, {
+    type: 'image/jpeg',
+  })
 }
 
 function parseJsonArrayFromAiText(text) {
@@ -131,9 +194,15 @@ async function flattenSpreadsheetToText(file) {
 export default function ImportJobs() {
   const navigate = useNavigate()
   const fileInputRef = useRef(null)
+  const cameraInputRef = useRef(null)
+  const galleryInputRef = useRef(null)
   const [inputMode, setInputMode] = useState('text')
   const [pastedText, setPastedText] = useState('')
   const [selectedFile, setSelectedFile] = useState(null)
+  const [selectedImage, setSelectedImage] = useState(null)
+  const [imageWasHeic, setImageWasHeic] = useState(false)
+  const [imagePreviewUrl, setImagePreviewUrl] = useState(null)
+  const [convertingImage, setConvertingImage] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [error, setError] = useState('')
   const [pendingResults, setPendingResults] = useState(null)
@@ -151,6 +220,19 @@ export default function ImportJobs() {
       if (nav) nav.style.display = ''
     }
   }, [])
+
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl)
+    }
+  }, [imagePreviewUrl])
+
+  function setImagePreview(file) {
+    setImagePreviewUrl((current) => {
+      if (current) URL.revokeObjectURL(current)
+      return URL.createObjectURL(file)
+    })
+  }
 
   function proceedToReview(results) {
     navigate('/jobs/import/review', { state: { jobs: results } })
@@ -215,6 +297,51 @@ export default function ImportJobs() {
     return parsed
   }
 
+  async function analyzeImportedImage(imageFile, wasHeic) {
+    const base64 = await fileToBase64(imageFile)
+    const mediaType = wasHeic
+      ? 'image/jpeg'
+      : imageFile.type === 'image/png'
+        ? 'image/png'
+        : 'image/jpeg'
+
+    const response = await fetch('/api/anthropic', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4096,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: mediaType,
+                  data: base64,
+                },
+              },
+              { type: 'text', text: buildPhotoImportPrompt() },
+            ],
+          },
+        ],
+      }),
+    })
+
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(body?.error?.message || 'Pedido à IA falhou.')
+    }
+
+    const textBlock = body?.content?.find((block) => block.type === 'text')
+    return parseJsonArrayFromAiText(textBlock?.text)
+  }
+
   async function handleAnalyzeText() {
     const text = pastedText.trim()
     if (!text || analyzing) return
@@ -268,6 +395,71 @@ export default function ImportJobs() {
     }
   }
 
+  async function handleImageSelect(file) {
+    setError('')
+
+    try {
+      let imageFile = file
+      const wasHeic = isHeicFile(file)
+
+      if (wasHeic) {
+        setConvertingImage(true)
+        try {
+          imageFile = await convertHeicToJpeg(file)
+        } catch {
+          setError('Não foi possível processar esta imagem. Tenta outra foto.')
+          return
+        } finally {
+          setConvertingImage(false)
+        }
+      }
+
+      setSelectedImage(imageFile)
+      setImageWasHeic(wasHeic)
+      setImagePreview(imageFile)
+    } catch {
+      setError('Não foi possível processar esta imagem. Tenta outra foto.')
+    }
+  }
+
+  function handleCameraChange(e) {
+    const file = e.target.files?.[0]
+    if (file) handleImageSelect(file)
+    e.target.value = ''
+  }
+
+  function handleGalleryChange(e) {
+    const file = e.target.files?.[0]
+    if (file) handleImageSelect(file)
+    e.target.value = ''
+  }
+
+  async function handleAnalyzePhoto() {
+    if (!selectedImage || analyzing || convertingImage) return
+
+    setError('')
+    setAnalyzing(true)
+
+    try {
+      const parsed = await analyzeImportedImage(selectedImage, imageWasHeic)
+
+      if (parsed.length === 0) {
+        setError(
+          'Não foi possível identificar trabalhos nesta imagem. Tenta outra foto ou usa o método de texto.'
+        )
+        return
+      }
+
+      openYearGateOrProceed(parsed)
+    } catch {
+      setError(
+        'Não foi possível processar o texto. Tenta reformular ou adiciona os trabalhos manualmente.'
+      )
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-app pb-12">
       <header className="flex items-center gap-3 px-4 pb-2 pt-4">
@@ -283,7 +475,7 @@ export default function ImportJobs() {
       </header>
 
       <div className="space-y-6 px-4 pt-2">
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <button
             type="button"
             onClick={() => {
@@ -312,6 +504,20 @@ export default function ImportJobs() {
           >
             Ficheiro
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setInputMode('photo')
+              setError('')
+            }}
+            className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+              inputMode === 'photo'
+                ? 'bg-accent text-[#000000]'
+                : 'bg-[#222222] text-[#888888]'
+            }`}
+          >
+            Foto
+          </button>
         </div>
 
         <section className="space-y-3">
@@ -335,7 +541,7 @@ export default function ImportJobs() {
                 {analyzing ? 'A analisar texto…' : '✨ Analisar com IA'}
               </button>
             </>
-          ) : (
+          ) : inputMode === 'file' ? (
             <>
               <input
                 ref={fileInputRef}
@@ -366,6 +572,65 @@ export default function ImportJobs() {
                     type="button"
                     disabled={analyzing}
                     onClick={handleAnalyzeFile}
+                    className="w-full rounded-lg py-3 text-sm font-medium text-white disabled:opacity-50"
+                    style={{ backgroundColor: AI_PURPLE }}
+                  >
+                    {analyzing ? 'A analisar texto…' : '✨ Analisar com IA'}
+                  </button>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={handleCameraChange}
+              />
+              <input
+                ref={galleryInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleGalleryChange}
+              />
+
+              <button
+                type="button"
+                onClick={() => cameraInputRef.current?.click()}
+                disabled={convertingImage}
+                className="w-full rounded-lg bg-[#222222] py-3 text-sm font-medium text-fg disabled:opacity-50"
+              >
+                📷 Tirar foto
+              </button>
+
+              <button
+                type="button"
+                onClick={() => galleryInputRef.current?.click()}
+                disabled={convertingImage}
+                className="text-sm text-[#888888] underline disabled:opacity-50"
+              >
+                Escolher da galeria
+              </button>
+
+              {convertingImage ? (
+                <p className="text-sm text-[#888888]">A converter imagem…</p>
+              ) : null}
+
+              {selectedImage && imagePreviewUrl ? (
+                <div className="space-y-3">
+                  <img
+                    src={imagePreviewUrl}
+                    alt="Pré-visualização"
+                    className="h-32 w-auto max-w-full rounded-lg object-cover"
+                  />
+                  <button
+                    type="button"
+                    disabled={analyzing || convertingImage}
+                    onClick={handleAnalyzePhoto}
                     className="w-full rounded-lg py-3 text-sm font-medium text-white disabled:opacity-50"
                     style={{ backgroundColor: AI_PURPLE }}
                   >
