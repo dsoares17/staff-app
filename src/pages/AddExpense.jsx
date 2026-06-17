@@ -17,7 +17,7 @@ const CATEGORIES = [
 ]
 
 const RECEIPT_PROMPT =
-  'Analisa este recibo e extrai a seguinte informação em JSON: description (string, what was purchased), amount (number, total amount paid), date (string, YYYY-MM-DD format), category (one of: alimentação, transporte, alojamento, equipamento, outro). Responde APENAS com JSON válido, sem texto adicional.'
+  'Analisa este recibo e extrai a seguinte informação em JSON: description (string — um resumo muito curto do TIPO de despesa, em poucas palavras, sem incluir o nome do estabelecimento, valores, ou datas — essa informação já é guardada separadamente. Exemplos de bom formato: \'Refeição\', \'Combustível\', \'Material de evento\', \'Estacionamento\', \'Bilhetes de transporte\'. NÃO listes os itens individuais do recibo, NÃO incluas o nome do restaurante/loja, NÃO incluas valores ou datas no texto.), amount (number, total amount paid), date (string, YYYY-MM-DD format), category (one of: alimentação, transporte, alojamento, equipamento, outro).\nResponde APENAS com JSON válido, sem texto adicional.'
 
 function todayISO() {
   const d = new Date()
