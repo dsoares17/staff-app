@@ -83,16 +83,82 @@ function formatTimeRange(startTime, endTime) {
   return start || end
 }
 
+function calcHourlyExtraTotal(job) {
+  const rate = Number(job.hourly_rate)
+  const parsedHours = Number(job.hours)
+  if (!Number.isFinite(rate) || !Number.isFinite(parsedHours) || rate <= 0 || parsedHours <= 0) {
+    return 0
+  }
+  return roundMoney(rate * parsedHours) ?? 0
+}
+
 function getJobTotal(job) {
+  const hourlyExtra = calcHourlyExtraTotal(job)
+
   if (job.flat_total != null && Number(job.flat_total) > 0) {
-    return roundMoney(job.flat_total)
+    return roundMoney(Number(job.flat_total) + hourlyExtra)
   }
 
   const work = roundMoney((job.work_days ?? 0) * (job.work_rate ?? 0)) ?? 0
-  const travel = roundMoney((job.travel_days ?? 0) * (job.travel_rate ?? 0)) ?? 0
-  const total = roundMoney(work + travel)
+  const travel =
+    roundMoney((job.transport_travel_days ?? 0) * (job.transport_travel_rate ?? 0)) ?? 0
+  const total = roundMoney(work + travel + hourlyExtra)
 
   return total != null && total > 0 ? total : null
+}
+
+function getJobSpanDays(job) {
+  if (!job.start_date) return 0
+  const start = new Date(`${job.start_date}T00:00:00`)
+  const end = new Date(`${job.end_date || job.start_date}T00:00:00`)
+  const diffDays = Math.floor((end - start) / (1000 * 60 * 60 * 24)) + 1
+  return diffDays > 0 ? diffDays : 1
+}
+
+function isFlatPaymentJob(job) {
+  return job.flat_total != null && Number(job.flat_total) > 0
+}
+
+function getJobDayContribution(job, dayISO) {
+  if (!jobOverlapsDay(job, dayISO)) return 0
+
+  if (isFlatPaymentJob(job)) {
+    const spanDays = getJobSpanDays(job)
+    if (spanDays <= 0) return 0
+    return roundMoney(Number(job.flat_total) / spanDays) ?? 0
+  }
+
+  const workRate = Number(job.work_rate)
+  if (!Number.isFinite(workRate) || workRate <= 0) return 0
+  return roundMoney(workRate) ?? 0
+}
+
+function formatCompactEuro(amount) {
+  const rounded = roundMoney(amount) ?? 0
+  if (rounded <= 0) return null
+
+  if (rounded > 1000) {
+    const thousands = Math.round((rounded / 1000) * 10) / 10
+    const formatted = Number.isInteger(thousands)
+      ? String(thousands)
+      : String(thousands).replace('.', ',')
+    return `€${formatted}k`
+  }
+
+  const intValue = Math.round(rounded)
+  const withDots = String(intValue).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  return `€${withDots}`
+}
+
+function getDayEarningsTotal(jobs, dayISO) {
+  let sum = 0
+
+  for (const job of jobs) {
+    if (job.status === 'cancelled') continue
+    sum += getJobDayContribution(job, dayISO)
+  }
+
+  return roundMoney(sum) ?? 0
 }
 
 function getJobPayment(job) {
@@ -398,25 +464,27 @@ function JobsCalendar({ jobs, onJobClick }) {
           const isToday = dayISO === today
           const isSelected = dayISO === selectedDay
           const { dots, overflow } = getDayDots(jobs, dayISO)
+          const dayEarnings = getDayEarningsTotal(jobs, dayISO)
+          const dayEarningsLabel = dayEarnings > 0 ? formatCompactEuro(dayEarnings) : null
 
           return (
             <button
               key={dayISO}
               type="button"
               onClick={() => setSelectedDay(dayISO)}
-              className={`flex min-h-[52px] flex-col items-center rounded-lg px-1 py-1.5 transition-colors ${
+              className={`flex min-h-[68px] flex-col items-center justify-start rounded-lg px-0.5 py-1.5 transition-colors ${
                 isSelected ? 'bg-[#1A1A1A]' : 'active:bg-surface'
               }`}
             >
               <span
-                className={`flex h-7 w-7 items-center justify-center rounded-full text-sm ${
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-sm leading-none ${
                   cell.isCurrentMonth ? 'text-fg' : 'text-[#444444]'
                 } ${isToday ? 'border border-accent' : ''}`}
               >
                 {cell.date.getDate()}
               </span>
 
-              <div className="mt-1 flex min-h-[10px] items-center justify-center gap-0.5">
+              <div className="mt-0.5 flex min-h-[8px] shrink-0 items-center justify-center gap-0.5">
                 {dots.map((color, index) => (
                   <span
                     key={`${dayISO}-${index}`}
@@ -428,6 +496,12 @@ function JobsCalendar({ jobs, onJobClick }) {
                   <span className="text-[10px] leading-none text-[#888888]">+{overflow}</span>
                 ) : null}
               </div>
+
+              {dayEarningsLabel ? (
+                <span className="mt-0.5 max-w-full truncate px-0.5 text-[10px] font-medium leading-tight text-accent">
+                  {dayEarningsLabel}
+                </span>
+              ) : null}
             </button>
           )
         })}
