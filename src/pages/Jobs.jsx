@@ -328,6 +328,64 @@ async function autoCompletePastJobs(jobs) {
   )
 }
 
+function isInvoiceOverdue(invoiceDate, today) {
+  const invoice = new Date(`${invoiceDate}T00:00:00`)
+  const todayDate = new Date(`${today}T00:00:00`)
+  const diffDays = Math.floor((todayDate - invoice) / (1000 * 60 * 60 * 24))
+  return diffDays > 30
+}
+
+function applyPaymentStatusToJobs(jobs, paymentIds, status) {
+  const ids = new Set(paymentIds)
+
+  return jobs.map((job) => {
+    const payment = getJobPayment(job)
+    if (!payment?.id || !ids.has(payment.id)) return job
+
+    if (Array.isArray(job.staff_app_payments)) {
+      return {
+        ...job,
+        staff_app_payments: job.staff_app_payments.map((p) =>
+          ids.has(p.id) ? { ...p, status } : p
+        ),
+      }
+    }
+
+    return {
+      ...job,
+      staff_app_payments: { ...payment, status },
+    }
+  })
+}
+
+async function autoMarkOverduePayments(jobs) {
+  const today = todayISO()
+  const paymentIds = []
+
+  for (const job of jobs) {
+    const payment = getJobPayment(job)
+    if (!payment?.id) continue
+    if (payment.status !== 'faturado') continue
+    if (!payment.invoice_date) continue
+    if (!isInvoiceOverdue(payment.invoice_date, today)) continue
+    paymentIds.push(payment.id)
+  }
+
+  if (paymentIds.length === 0) return jobs
+
+  const { error } = await supabase
+    .from('staff_app_payments')
+    .update({ status: 'em_atraso' })
+    .in('id', paymentIds)
+
+  if (error) {
+    console.error('Erro ao atualizar estados dos pagamentos:', error.message)
+    return jobs
+  }
+
+  return applyPaymentStatusToJobs(jobs, paymentIds, 'em_atraso')
+}
+
 function getJobsForDay(jobs, dayISO) {
   return jobs.filter((job) => jobOverlapsDay(job, dayISO))
 }
@@ -715,7 +773,7 @@ export default function Jobs() {
 
       const { data, error } = await supabase
         .from('staff_app_jobs')
-        .select('*, staff_app_payments(status, expected_amount)')
+        .select('*, staff_app_payments(id, status, expected_amount, invoice_date)')
         .eq('staff_app_user_id', user.id)
         .order('start_date', { ascending: false })
 
@@ -725,7 +783,9 @@ export default function Jobs() {
         console.error('Erro ao carregar trabalhos:', error.message)
         setJobs([])
       } else {
-        const updatedJobs = await autoCompletePastJobs(data ?? [])
+        const updatedJobs = await autoMarkOverduePayments(
+          await autoCompletePastJobs(data ?? [])
+        )
         setJobs(updatedJobs)
       }
 

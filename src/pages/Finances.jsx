@@ -30,6 +30,72 @@ function getJobPayment(job) {
   return payments
 }
 
+function todayISO() {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function isInvoiceOverdue(invoiceDate, today) {
+  const invoice = new Date(`${invoiceDate}T00:00:00`)
+  const todayDate = new Date(`${today}T00:00:00`)
+  const diffDays = Math.floor((todayDate - invoice) / (1000 * 60 * 60 * 24))
+  return diffDays > 30
+}
+
+function applyPaymentStatusToJobs(jobs, paymentIds, status) {
+  const ids = new Set(paymentIds)
+
+  return jobs.map((job) => {
+    const payment = getJobPayment(job)
+    if (!payment?.id || !ids.has(payment.id)) return job
+
+    if (Array.isArray(job.staff_app_payments)) {
+      return {
+        ...job,
+        staff_app_payments: job.staff_app_payments.map((p) =>
+          ids.has(p.id) ? { ...p, status } : p
+        ),
+      }
+    }
+
+    return {
+      ...job,
+      staff_app_payments: { ...payment, status },
+    }
+  })
+}
+
+async function autoMarkOverduePayments(jobs) {
+  const today = todayISO()
+  const paymentIds = []
+
+  for (const job of jobs) {
+    const payment = getJobPayment(job)
+    if (!payment?.id) continue
+    if (payment.status !== 'faturado') continue
+    if (!payment.invoice_date) continue
+    if (!isInvoiceOverdue(payment.invoice_date, today)) continue
+    paymentIds.push(payment.id)
+  }
+
+  if (paymentIds.length === 0) return jobs
+
+  const { error } = await supabase
+    .from('staff_app_payments')
+    .update({ status: 'em_atraso' })
+    .in('id', paymentIds)
+
+  if (error) {
+    console.error('Erro ao atualizar estados dos pagamentos:', error.message)
+    return jobs
+  }
+
+  return applyPaymentStatusToJobs(jobs, paymentIds, 'em_atraso')
+}
+
 function calcJobTotal(job) {
   if (job.flat_total != null && Number(job.flat_total) > 0) {
     return roundMoney(job.flat_total)
@@ -112,7 +178,7 @@ export default function Finances() {
         .select(
           `id, event_name, start_date, work_days, work_rate, flat_total,
           transport_travel_days, transport_travel_rate,
-          staff_app_payments(status, expected_amount, paid_amount)`
+          staff_app_payments(id, status, expected_amount, paid_amount, invoice_date)`
         )
         .eq('staff_app_user_id', user.id)
         .gte('start_date', `${selectedYear}-01-01`)
@@ -125,7 +191,8 @@ export default function Finances() {
         console.error('Erro ao carregar finanças:', error.message)
         setJobs([])
       } else {
-        setJobs(data ?? [])
+        const updatedJobs = await autoMarkOverduePayments(data ?? [])
+        setJobs(updatedJobs)
       }
 
       setLoading(false)
