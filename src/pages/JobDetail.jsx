@@ -86,15 +86,26 @@ function formatDate(value) {
   return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`
 }
 
+function calcHourlyExtraTotal(job) {
+  const rate = Number(job.hourly_rate)
+  const parsedHours = Number(job.hours)
+  if (!Number.isFinite(rate) || !Number.isFinite(parsedHours) || rate <= 0 || parsedHours <= 0) {
+    return 0
+  }
+  return roundMoney(rate * parsedHours) ?? 0
+}
+
 function calcReceivableTotal(job) {
+  const hourlyExtra = calcHourlyExtraTotal(job)
+
   if (job.flat_total != null && Number(job.flat_total) > 0) {
-    return roundMoney(job.flat_total)
+    return roundMoney(Number(job.flat_total) + hourlyExtra)
   }
 
   const work = roundMoney((job.work_days ?? 0) * (job.work_rate ?? 0)) ?? 0
   const travel =
     roundMoney((job.transport_travel_days ?? 0) * (job.transport_travel_rate ?? 0)) ?? 0
-  const total = roundMoney(work + travel)
+  const total = roundMoney(work + travel + hourlyExtra)
 
   return total != null && total > 0 ? total : null
 }
@@ -103,8 +114,15 @@ function hasPayData(job) {
   return (
     (job.flat_total != null && Number(job.flat_total) > 0) ||
     (job.work_days != null && job.work_rate != null) ||
-    (job.transport_travel_days != null && job.transport_travel_rate != null)
+    (job.transport_travel_days != null && job.transport_travel_rate != null) ||
+    (job.hourly_rate != null && job.hours != null)
   )
+}
+
+function formatHoursLabel(hours) {
+  const value = Number(hours)
+  if (!Number.isFinite(value)) return String(hours)
+  return Number.isInteger(value) ? String(value) : String(value).replace('.', ',')
 }
 
 function buildPayBreakdownLines(job) {
@@ -122,6 +140,14 @@ function buildPayBreakdownLines(job) {
     lines.push(
       `${formatEuro(job.transport_travel_rate)}/dia × ${job.transport_travel_days} dias`
     )
+  }
+
+  if (job.hourly_rate != null && job.hours != null) {
+    const rate = Number(job.hourly_rate)
+    const hours = Number(job.hours)
+    if (Number.isFinite(rate) && Number.isFinite(hours) && rate > 0 && hours > 0) {
+      lines.push(`${formatEuro(rate)}/hora × ${formatHoursLabel(hours)} horas`)
+    }
   }
 
   return lines

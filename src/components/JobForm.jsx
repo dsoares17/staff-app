@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { roundMoney } from '../lib/money.js'
+import { formatEuro, roundMoney } from '../lib/money.js'
 
 const fieldClass =
   'w-full rounded-lg border bg-surface px-3 py-3 text-sm text-fg outline-none transition focus:border-accent'
@@ -123,6 +123,31 @@ function numberToField(value) {
   return value != null ? String(value) : ''
 }
 
+export function calcHourlyExtraTotal(hourlyRate, hours) {
+  const rate = parseNumber(hourlyRate)
+  const parsedHours = parseNumber(hours)
+  if (rate == null || parsedHours == null || rate <= 0 || parsedHours <= 0) return 0
+  return roundMoney(rate * parsedHours) ?? 0
+}
+
+export function calcReceivableFromFormState(formState) {
+  const parsedWorkDays = parseInteger(formState.workDays)
+  const parsedWorkRate = parseNumber(formState.workRate)
+  const parsedFlatTotal = parseNumber(formState.flatTotal)
+  const parsedTransportTravelDays = parseInteger(formState.transportTravelDays)
+  const parsedTransportTravelRate = parseNumber(formState.transportTravelRate)
+
+  const workTotal = roundMoney((parsedWorkDays ?? 0) * (parsedWorkRate ?? 0)) ?? 0
+  const travelTotal =
+    roundMoney((parsedTransportTravelDays ?? 0) * (parsedTransportTravelRate ?? 0)) ?? 0
+  const hourlyExtra = calcHourlyExtraTotal(formState.hourlyRate, formState.hours)
+
+  const baseTotal =
+    formState.paymentMode === 'daily' ? workTotal + travelTotal : (parsedFlatTotal ?? 0)
+
+  return roundMoney(baseTotal + hourlyExtra)
+}
+
 export function jobToFormValues(job) {
   const paymentMode =
     job.flat_total != null && Number(job.flat_total) > 0 ? 'flat' : 'daily'
@@ -145,6 +170,11 @@ export function jobToFormValues(job) {
     workDays: numberToField(job.work_days),
     workRate: numberToField(job.work_rate),
     flatTotal: numberToField(job.flat_total),
+    hourlyExpanded:
+      job.hourly_rate != null ||
+      (job.hours != null && Number(job.hours) > 0),
+    hourlyRate: numberToField(job.hourly_rate),
+    hours: numberToField(job.hours),
     mealsExpanded: Boolean(job.meals_type && job.meals_type !== 'none'),
     mealsType: job.meals_type ?? 'none',
     mealsRate: numberToField(job.meals_rate),
@@ -175,14 +205,10 @@ export function buildJobPayload(formState) {
   const parsedTransportTolls = parseNumber(formState.transportTolls)
   const parsedTransportTravelDays = parseInteger(formState.transportTravelDays)
   const parsedTransportTravelRate = parseNumber(formState.transportTravelRate)
+  const parsedHourlyRate = parseNumber(formState.hourlyRate)
+  const parsedHours = parseNumber(formState.hours)
 
-  const workTotal = roundMoney((parsedWorkDays ?? 0) * (parsedWorkRate ?? 0)) ?? 0
-  const travelTotal =
-    roundMoney((parsedTransportTravelDays ?? 0) * (parsedTransportTravelRate ?? 0)) ?? 0
-  const expectedAmount =
-    formState.paymentMode === 'daily'
-      ? roundMoney(workTotal + travelTotal)
-      : roundMoney(parsedFlatTotal)
+  const expectedAmount = calcReceivableFromFormState(formState)
 
   const normalizedExpectedAmount =
     expectedAmount != null && expectedAmount > 0 ? expectedAmount : null
@@ -201,7 +227,9 @@ export function buildJobPayload(formState) {
       status: formState.status,
       work_days: formState.paymentMode === 'daily' ? parsedWorkDays : null,
       work_rate: formState.paymentMode === 'daily' ? roundMoney(parsedWorkRate) : null,
-      flat_total: formState.paymentMode === 'flat' ? roundMoney(parsedFlatTotal) : null,
+      flat_total: formState.paymentMode === 'flat' ? parsedFlatTotal : null,
+      hourly_rate: formState.hourlyExpanded ? roundMoney(parsedHourlyRate) : null,
+      hours: formState.hourlyExpanded ? parsedHours : null,
       meals_type: formState.mealsType,
       meals_rate: formState.mealsType === 'allowance' ? roundMoney(parsedMealsRate) : null,
       meals_count: formState.mealsType === 'allowance' ? parsedMealsCount : null,
@@ -235,6 +263,9 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
   const [workDays, setWorkDays] = useState('')
   const [workRate, setWorkRate] = useState('')
   const [flatTotal, setFlatTotal] = useState('')
+  const [hourlyExpanded, setHourlyExpanded] = useState(false)
+  const [hourlyRate, setHourlyRate] = useState('')
+  const [hours, setHours] = useState('')
   const [mealsExpanded, setMealsExpanded] = useState(false)
   const [mealsType, setMealsType] = useState('none')
   const [mealsRate, setMealsRate] = useState('')
@@ -268,6 +299,9 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
     setWorkDays(values.workDays)
     setWorkRate(values.workRate)
     setFlatTotal(values.flatTotal)
+    setHourlyExpanded(values.hourlyExpanded)
+    setHourlyRate(values.hourlyRate)
+    setHours(values.hours)
     setMealsExpanded(values.mealsExpanded)
     setMealsType(values.mealsType)
     setMealsRate(values.mealsRate)
@@ -283,13 +317,50 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
     setAccommodationType(values.accommodationType)
   }, [initialJob])
 
-  const estimatedTotal = useMemo(() => {
+  const workSubtotal = useMemo(() => {
     const days = parseInteger(workDays) ?? 0
     const rate = parseNumber(workRate) ?? 0
     return roundMoney(days * rate) ?? 0
   }, [workDays, workRate])
 
-  const showEstimatedTotal = estimatedTotal > 0
+  const showWorkSubtotal = paymentMode === 'daily' && workSubtotal > 0
+
+  const hourlyExtraTotal = useMemo(
+    () => calcHourlyExtraTotal(hourlyRate, hours),
+    [hourlyRate, hours]
+  )
+
+  const showHourlyExtraTotal = hourlyExtraTotal > 0
+
+  const receivableTotal = useMemo(
+    () =>
+      calcReceivableFromFormState({
+        paymentMode,
+        workDays,
+        workRate,
+        flatTotal,
+        hourlyRate,
+        hours,
+        transportTravelDays,
+        transportTravelRate,
+      }),
+    [
+      paymentMode,
+      workDays,
+      workRate,
+      flatTotal,
+      hourlyRate,
+      hours,
+      transportTravelDays,
+      transportTravelRate,
+    ]
+  )
+
+  const showReceivableTotal = receivableTotal != null && receivableTotal > 0
+
+  const flatSubtotal = useMemo(() => parseNumber(flatTotal) ?? 0, [flatTotal])
+
+  const showFlatSubtotal = paymentMode === 'flat' && flatSubtotal > 0
 
   const mealsAllowanceTotal = useMemo(() => {
     const rate = parseNumber(mealsRate) ?? 0
@@ -335,6 +406,9 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
       workDays,
       workRate,
       flatTotal,
+      hourlyExpanded,
+      hourlyRate,
+      hours,
       mealsType,
       mealsRate,
       mealsCount,
@@ -519,9 +593,9 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
                 </label>
               </div>
 
-              {showEstimatedTotal ? (
+              {showWorkSubtotal ? (
                 <p className="text-right text-sm text-accent">
-                  Total estimado: €{estimatedTotal.toFixed(2)}
+                  Total dias de trabalho: {formatEuro(workSubtotal)}
                 </p>
               ) : null}
             </div>
@@ -531,9 +605,67 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
                 <span className="mb-1.5 block text-sm text-muted">Valor total do evento</span>
                 <EuroInput value={flatTotal} onChange={(e) => setFlatTotal(e.target.value)} />
               </label>
+
+              {showFlatSubtotal ? (
+                <p className="text-right text-sm text-accent">
+                  Valor total: {formatEuro(flatSubtotal)}
+                </p>
+              ) : null}
             </div>
           )}
         </section>
+
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={() => {
+              if (hourlyExpanded) {
+                setHourlyRate('')
+                setHours('')
+              }
+              setHourlyExpanded((open) => !open)
+            }}
+            className="text-sm text-accent"
+          >
+            {hourlyExpanded ? '− Remover horas extra' : '+ Adicionar horas extra'}
+          </button>
+
+          {hourlyExpanded ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="mb-1.5 block text-sm text-muted">Valor/hora</span>
+                  <EuroInput value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1.5 block text-sm text-muted">Horas</span>
+                  <input
+                    className={fieldClass}
+                    style={fieldStyle}
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={hours}
+                    onChange={(e) => setHours(e.target.value)}
+                  />
+                </label>
+              </div>
+
+              {showHourlyExtraTotal ? (
+                <p className="text-xs text-accent">
+                  Total horas extra: {formatEuro(hourlyExtraTotal)}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {showReceivableTotal ? (
+            <p className="text-right text-sm font-medium text-accent">
+              Total estimado: {formatEuro(receivableTotal)}
+            </p>
+          ) : null}
+        </div>
 
         <CollapsibleSection
           title="Refeições"
