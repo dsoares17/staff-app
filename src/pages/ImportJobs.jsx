@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import * as XLSX from 'xlsx'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const AI_PURPLE = '#A855F7'
@@ -89,9 +90,50 @@ function formatOtherYearLabel(jobs) {
   return 'de outros anos'
 }
 
+function formatCellValue(value) {
+  if (value == null) return ''
+  if (value instanceof Date) {
+    return value.toLocaleDateString('pt-PT')
+  }
+  return String(value).trim()
+}
+
+async function flattenSpreadsheetToText(file) {
+  const buffer = await file.arrayBuffer()
+  const workbook = XLSX.read(buffer, { type: 'array' })
+  const firstSheetName = workbook.SheetNames[0]
+
+  if (!firstSheetName) {
+    throw new Error('empty')
+  }
+
+  const sheet = workbook.Sheets[firstSheetName]
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new Error('empty')
+  }
+
+  const lines = rows
+    .map((row) => {
+      const cells = Array.isArray(row) ? row : [row]
+      return cells.map(formatCellValue).join(' | ')
+    })
+    .filter((line) => line.replace(/\s*\|\s*/g, '').trim().length > 0)
+
+  if (lines.length === 0) {
+    throw new Error('empty')
+  }
+
+  return lines.join('\n')
+}
+
 export default function ImportJobs() {
   const navigate = useNavigate()
+  const fileInputRef = useRef(null)
+  const [inputMode, setInputMode] = useState('text')
   const [pastedText, setPastedText] = useState('')
+  const [selectedFile, setSelectedFile] = useState(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [error, setError] = useState('')
   const [pendingResults, setPendingResults] = useState(null)
@@ -139,7 +181,41 @@ export default function ImportJobs() {
     proceedToReview(results)
   }
 
-  async function handleAnalyze() {
+  async function analyzeImportedText(text) {
+    const response = await fetch('/api/anthropic', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4096,
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: buildImportPrompt(text) }],
+          },
+        ],
+      }),
+    })
+
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(body?.error?.message || 'Pedido à IA falhou.')
+    }
+
+    const textBlock = body?.content?.find((block) => block.type === 'text')
+    const parsed = parseJsonArrayFromAiText(textBlock?.text)
+
+    if (parsed.length === 0) {
+      throw new Error('Nenhum trabalho encontrado.')
+    }
+
+    return parsed
+  }
+
+  async function handleAnalyzeText() {
     const text = pastedText.trim()
     if (!text || analyzing) return
 
@@ -147,36 +223,41 @@ export default function ImportJobs() {
     setAnalyzing(true)
 
     try {
-      const response = await fetch('/api/anthropic', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 4096,
-          messages: [
-            {
-              role: 'user',
-              content: [{ type: 'text', text: buildImportPrompt(text) }],
-            },
-          ],
-        }),
-      })
+      const parsed = await analyzeImportedText(text)
+      openYearGateOrProceed(parsed)
+    } catch {
+      setError(
+        'Não foi possível processar o texto. Tenta reformular ou adiciona os trabalhos manualmente.'
+      )
+    } finally {
+      setAnalyzing(false)
+    }
+  }
 
-      const body = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(body?.error?.message || 'Pedido à IA falhou.')
+  function handleFileChange(e) {
+    const file = e.target.files?.[0] ?? null
+    setSelectedFile(file)
+    setError('')
+    e.target.value = ''
+  }
+
+  async function handleAnalyzeFile() {
+    if (!selectedFile || analyzing) return
+
+    setError('')
+    setAnalyzing(true)
+
+    try {
+      let flattenedText
+
+      try {
+        flattenedText = await flattenSpreadsheetToText(selectedFile)
+      } catch {
+        setError('Não foi possível ler o ficheiro. Verifica o formato e tenta novamente.')
+        return
       }
 
-      const textBlock = body?.content?.find((block) => block.type === 'text')
-      const parsed = parseJsonArrayFromAiText(textBlock?.text)
-
-      if (parsed.length === 0) {
-        throw new Error('Nenhum trabalho encontrado.')
-      }
-
+      const parsed = await analyzeImportedText(flattenedText)
       openYearGateOrProceed(parsed)
     } catch {
       setError(
@@ -202,24 +283,98 @@ export default function ImportJobs() {
       </header>
 
       <div className="space-y-6 px-4 pt-2">
-        <section className="space-y-3">
-          <textarea
-            value={pastedText}
-            onChange={(e) => setPastedText(e.target.value)}
-            placeholder="Cola aqui o teu calendário ou notas"
-            className="min-h-[200px] w-full resize-y rounded-lg border p-3 text-sm text-fg outline-none transition focus:border-[#A855F7]"
-            style={{ backgroundColor: '#141414', borderColor: '#222222' }}
-          />
-
+        <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
-            disabled={!pastedText.trim() || analyzing}
-            onClick={handleAnalyze}
-            className="w-full rounded-lg py-3 text-sm font-medium text-white disabled:opacity-50"
-            style={{ backgroundColor: AI_PURPLE }}
+            onClick={() => {
+              setInputMode('text')
+              setError('')
+            }}
+            className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+              inputMode === 'text'
+                ? 'bg-accent text-[#000000]'
+                : 'bg-[#222222] text-[#888888]'
+            }`}
           >
-            {analyzing ? 'A analisar texto…' : '✨ Analisar com IA'}
+            Texto
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setInputMode('file')
+              setError('')
+            }}
+            className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+              inputMode === 'file'
+                ? 'bg-accent text-[#000000]'
+                : 'bg-[#222222] text-[#888888]'
+            }`}
+          >
+            Ficheiro
+          </button>
+        </div>
+
+        <section className="space-y-3">
+          {inputMode === 'text' ? (
+            <>
+              <textarea
+                value={pastedText}
+                onChange={(e) => setPastedText(e.target.value)}
+                placeholder="Cola aqui o teu calendário ou notas"
+                className="min-h-[200px] w-full resize-y rounded-lg border p-3 text-sm text-fg outline-none transition focus:border-[#A855F7]"
+                style={{ backgroundColor: '#141414', borderColor: '#222222' }}
+              />
+
+              <button
+                type="button"
+                disabled={!pastedText.trim() || analyzing}
+                onClick={handleAnalyzeText}
+                className="w-full rounded-lg py-3 text-sm font-medium text-white disabled:opacity-50"
+                style={{ backgroundColor: AI_PURPLE }}
+              >
+                {analyzing ? 'A analisar texto…' : '✨ Analisar com IA'}
+              </button>
+            </>
+          ) : (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+
+              <div
+                className="rounded-lg border p-4"
+                style={{ backgroundColor: '#141414', borderColor: '#222222' }}
+              >
+                <p className="text-sm text-fg">Carrega o teu ficheiro Excel ou CSV</p>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="mt-3 rounded-lg bg-[#222222] px-4 py-2 text-sm font-medium text-fg"
+                >
+                  Selecionar ficheiro
+                </button>
+              </div>
+
+              {selectedFile ? (
+                <div className="space-y-3">
+                  <p className="text-sm text-[#888888]">{selectedFile.name}</p>
+                  <button
+                    type="button"
+                    disabled={analyzing}
+                    onClick={handleAnalyzeFile}
+                    className="w-full rounded-lg py-3 text-sm font-medium text-white disabled:opacity-50"
+                    style={{ backgroundColor: AI_PURPLE }}
+                  >
+                    {analyzing ? 'A analisar texto…' : '✨ Analisar com IA'}
+                  </button>
+                </div>
+              ) : null}
+            </>
+          )}
 
           {error ? <p className="text-sm text-[#FF4444]">{error}</p> : null}
         </section>
