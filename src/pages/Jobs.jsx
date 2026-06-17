@@ -23,16 +23,16 @@ const MONTH_NAMES = [
 
 const WEEK_DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
-const STATUS_CONFIG = {
-  confirmed: { label: 'Confirmado', dot: 'bg-[#00FF87]' },
-  pending: { label: 'Pendente', dot: 'bg-amber-400' },
-  completed: { label: 'Concluído', dot: 'bg-neutral-500' },
-  cancelled: { label: 'Cancelado', dot: 'bg-danger' },
+const JOB_STATUS = {
+  pending: { label: 'Pendente', bg: '#FFB800', text: '#000000' },
+  confirmed: { label: 'Confirmado', bg: '#00FF87', text: '#000000' },
+  completed: { label: 'Concluído', bg: '#444444', text: '#888888' },
+  cancelled: { label: 'Cancelado', bg: '#FF4444', text: '#ffffff' },
 }
 
 const STATUS_DOT_COLORS = {
-  confirmed: '#00FF87',
   pending: '#FFB800',
+  confirmed: '#00FF87',
   completed: '#444444',
   cancelled: '#FF4444',
 }
@@ -108,6 +108,39 @@ function jobOverlapsDay(job, dayISO) {
   return dayISO >= job.start_date && dayISO <= end
 }
 
+function getJobEndDate(job) {
+  return job.end_date || job.start_date
+}
+
+function isConfirmedJobPast(job, todayISO) {
+  if (job.status !== 'confirmed') return false
+  const endDate = getJobEndDate(job)
+  if (!endDate) return false
+  return endDate < todayISO
+}
+
+async function autoCompletePastJobs(jobs) {
+  const today = todayISO()
+  const toComplete = jobs.filter((job) => isConfirmedJobPast(job, today))
+  if (toComplete.length === 0) return jobs
+
+  const ids = toComplete.map((job) => job.id)
+  const { error } = await supabase
+    .from('staff_app_jobs')
+    .update({ status: 'completed' })
+    .in('id', ids)
+
+  if (error) {
+    console.error('Erro ao atualizar estados dos trabalhos:', error.message)
+    return jobs
+  }
+
+  const completedIds = new Set(ids)
+  return jobs.map((job) =>
+    completedIds.has(job.id) ? { ...job, status: 'completed' } : job
+  )
+}
+
 function getJobsForDay(jobs, dayISO) {
   return jobs.filter((job) => jobOverlapsDay(job, dayISO))
 }
@@ -160,13 +193,15 @@ function SkeletonCard() {
 }
 
 function StatusBadge({ status }) {
-  const config = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending
+  const config = JOB_STATUS[status] ?? JOB_STATUS.pending
 
   return (
-    <div className="flex items-center gap-1.5 text-xs text-muted">
-      <span className={`h-2 w-2 rounded-full ${config.dot}`} />
-      <span>{config.label}</span>
-    </div>
+    <span
+      className="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
+      style={{ backgroundColor: config.bg, color: config.text }}
+    >
+      {config.label}
+    </span>
   )
 }
 
@@ -450,7 +485,8 @@ export default function Jobs() {
         console.error('Erro ao carregar trabalhos:', error.message)
         setJobs([])
       } else {
-        setJobs(data ?? [])
+        const updatedJobs = await autoCompletePastJobs(data ?? [])
+        setJobs(updatedJobs)
       }
 
       setLoading(false)

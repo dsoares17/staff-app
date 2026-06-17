@@ -8,6 +8,35 @@ const fieldStyle = { borderColor: 'var(--color-border)' }
 const pillActive = 'bg-accent text-[#000000]'
 const pillInactive = 'bg-[#222222] text-[#888888]'
 
+const JOB_STATUS_TOGGLE_OPTIONS = [
+  { value: 'pending', label: 'Pendente', activeClass: 'bg-[#FFB800] text-[#000000]' },
+  { value: 'confirmed', label: 'Confirmado', activeClass: 'bg-[#00FF87] text-[#000000]' },
+]
+
+function JobStatusToggle({ value, onChange }) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {JOB_STATUS_TOGGLE_OPTIONS.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onChange(option.value)}
+          className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+            value === option.value ? option.activeClass : pillInactive
+          }`}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function normalizeFormStatus(status) {
+  if (status === 'pending') return 'pending'
+  return 'confirmed'
+}
+
 function EuroInput({ value, onChange, min = 0, step = '0.01' }) {
   return (
     <div className="relative">
@@ -111,6 +140,7 @@ export function jobToFormValues(job) {
     startTime,
     endTime,
     notes: job.notes ?? '',
+    status: normalizeFormStatus(job.status),
     paymentMode,
     workDays: numberToField(job.work_days),
     workRate: numberToField(job.work_rate),
@@ -168,6 +198,7 @@ export function buildJobPayload(formState) {
       start_time: formState.startTime || null,
       end_time: formState.endTime || null,
       notes: formState.notes.trim() || null,
+      status: formState.status,
       work_days: formState.paymentMode === 'daily' ? parsedWorkDays : null,
       work_rate: formState.paymentMode === 'daily' ? roundMoney(parsedWorkRate) : null,
       flat_total: formState.paymentMode === 'flat' ? roundMoney(parsedFlatTotal) : null,
@@ -190,6 +221,7 @@ export function buildJobPayload(formState) {
 
 export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit }) {
   const [eventName, setEventName] = useState('')
+  const [status, setStatus] = useState('confirmed')
   const [organiserName, setOrganiserName] = useState('')
   const [role, setRole] = useState('')
   const [location, setLocation] = useState('')
@@ -222,6 +254,7 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
 
     const values = jobToFormValues(initialJob)
     setEventName(values.eventName)
+    setStatus(values.status)
     setOrganiserName(values.organiserName)
     setRole(values.role)
     setLocation(values.location)
@@ -289,6 +322,7 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
 
     const payload = buildJobPayload({
       eventName,
+      status,
       organiserName,
       role,
       location,
@@ -330,6 +364,11 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
             required
           />
         </label>
+
+        <div>
+          <span className="mb-1.5 block text-sm text-muted">Estado</span>
+          <JobStatusToggle value={status} onChange={setStatus} />
+        </div>
 
         <label className="block">
           <span className="mb-1.5 block text-sm text-muted">Organizador</span>

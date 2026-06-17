@@ -12,6 +12,13 @@ const JOB_STATUS = {
   cancelled: { label: 'Cancelado', bg: '#FF4444', text: '#ffffff' },
 }
 
+const STATUS_OPTIONS = [
+  { value: 'pending', ...JOB_STATUS.pending },
+  { value: 'confirmed', ...JOB_STATUS.confirmed },
+  { value: 'completed', ...JOB_STATUS.completed },
+  { value: 'cancelled', ...JOB_STATUS.cancelled },
+]
+
 const PAYMENT_STATUS_LABELS = {
   por_faturar: 'Por faturar',
   faturado: 'Faturado',
@@ -179,6 +186,9 @@ export default function JobDetail() {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
+  const [updatingJobStatus, setUpdatingJobStatus] = useState(false)
+  const [showStatusPicker, setShowStatusPicker] = useState(false)
+  const [statusSheetVisible, setStatusSheetVisible] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [selectedExpense, setSelectedExpense] = useState(null)
@@ -266,6 +276,41 @@ export default function JobDetail() {
 
   function handleMarkAsAtraso() {
     updatePaymentStatus({ status: 'em_atraso' })
+  }
+
+  useEffect(() => {
+    if (!showStatusPicker) {
+      setStatusSheetVisible(false)
+      return
+    }
+
+    const timer = setTimeout(() => setStatusSheetVisible(true), 0)
+    return () => clearTimeout(timer)
+  }, [showStatusPicker])
+
+  function closeStatusPicker() {
+    setStatusSheetVisible(false)
+    setTimeout(() => setShowStatusPicker(false), 150)
+  }
+
+  async function handleJobStatusChange(newStatus) {
+    if (!job?.id || job.status === newStatus) {
+      closeStatusPicker()
+      return
+    }
+
+    setUpdatingJobStatus(true)
+    const { error } = await supabase
+      .from('staff_app_jobs')
+      .update({ status: newStatus })
+      .eq('id', job.id)
+
+    setUpdatingJobStatus(false)
+
+    if (!error) {
+      setJob((current) => (current ? { ...current, status: newStatus } : current))
+      closeStatusPicker()
+    }
   }
 
   async function handleToggleExpenseReimbursed(expense, e) {
@@ -467,9 +512,17 @@ export default function JobDetail() {
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <h1 className="text-lg font-semibold leading-tight">{job.event_name}</h1>
-            <StatusPill bg={jobStatus.bg} text={jobStatus.text}>
-              {jobStatus.label}
-            </StatusPill>
+            <button
+              type="button"
+              onClick={() => setShowStatusPicker(true)}
+              disabled={updatingJobStatus}
+              className="shrink-0 disabled:opacity-60"
+              aria-label="Alterar estado do trabalho"
+            >
+              <StatusPill bg={jobStatus.bg} text={jobStatus.text}>
+                {jobStatus.label}
+              </StatusPill>
+            </button>
           </div>
         </div>
       </header>
@@ -763,6 +816,57 @@ export default function JobDetail() {
           </button>
         </div>
       </footer>
+
+      {showStatusPicker ? (
+        <div
+          className="fixed inset-0 z-[100] bg-black/70"
+          onClick={closeStatusPicker}
+          aria-modal="true"
+          role="dialog"
+        >
+          <div
+            className={`absolute bottom-0 left-0 right-0 mx-auto w-full max-w-[480px] rounded-t-2xl bg-surface p-4 transition-transform duration-200 ${
+              statusSheetVisible ? 'translate-y-0' : 'translate-y-full'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="mb-3 text-sm font-semibold text-fg">Estado do trabalho</p>
+
+            <div className="space-y-2">
+              {STATUS_OPTIONS.map((option) => {
+                const active = job.status === option.value
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    disabled={updatingJobStatus}
+                    onClick={() => handleJobStatusChange(option.value)}
+                    className={`flex w-full items-center justify-between rounded-lg px-4 py-3 text-sm font-medium disabled:opacity-60 ${
+                      active ? 'bg-[#222222]' : 'bg-transparent'
+                    }`}
+                  >
+                    <span
+                      className="inline-flex rounded-full px-2.5 py-1 text-xs font-medium"
+                      style={{ backgroundColor: option.bg, color: option.text }}
+                    >
+                      {option.label}
+                    </span>
+                    {active ? <span className="text-xs text-accent">Atual</span> : null}
+                  </button>
+                )
+              })}
+            </div>
+
+            <button
+              type="button"
+              onClick={closeStatusPicker}
+              className="mt-4 w-full py-2 text-sm font-medium text-[#888888]"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {showDeleteConfirm ? (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4">
