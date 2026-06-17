@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext.jsx'
 import { formatEuro, formatEuroWhole, roundMoney } from '../lib/money.js'
 import { supabase } from '../lib/supabaseClient.js'
 
@@ -162,6 +163,34 @@ function CompactDetailRow({ label, value }) {
   )
 }
 
+function sanitizeInvoiceFilename(name) {
+  return String(name).replace(/[/\\]/g, '_').trim() || 'fatura'
+}
+
+function getInvoiceFilename(path) {
+  if (!path) return 'Fatura'
+  const parts = path.split('/')
+  return parts[parts.length - 1] || 'Fatura'
+}
+
+function FileIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4 shrink-0 text-[#888888]"
+    >
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+    </svg>
+  )
+}
+
 function StatusPill({ bg, text, children }) {
   return (
     <span
@@ -206,6 +235,7 @@ function ReimbursedPill({ reimbursed, onToggle }) {
 export default function JobDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [job, setJob] = useState(null)
   const [payment, setPayment] = useState(null)
   const [expenses, setExpenses] = useState([])
@@ -229,6 +259,10 @@ export default function JobDetail() {
     category: 'alimentação',
     expenseDate: '',
   })
+  const [invoiceUploadBusy, setInvoiceUploadBusy] = useState(false)
+  const [invoiceBusyMessage, setInvoiceBusyMessage] = useState('A enviar ficheiro…')
+  const [invoiceFileMessage, setInvoiceFileMessage] = useState('')
+  const invoiceFileInputRef = useRef(null)
 
   useEffect(() => {
     const nav = document.querySelector('nav.fixed.bottom-0')
@@ -302,6 +336,96 @@ export default function JobDetail() {
 
   function handleMarkAsAtraso() {
     updatePaymentStatus({ status: 'em_atraso' })
+  }
+
+  async function uploadInvoiceFile(file) {
+    if (!user?.id || !payment?.id || !id) return
+
+    setInvoiceFileMessage('')
+    setInvoiceBusyMessage('A enviar ficheiro…')
+    setInvoiceUploadBusy(true)
+
+    try {
+      const path = `${user.id}/${id}/${sanitizeInvoiceFilename(file.name)}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('staff-invoices')
+        .upload(path, file, { upsert: true })
+
+      if (uploadError) throw uploadError
+
+      const { error: updateError } = await supabase
+        .from('staff_app_payments')
+        .update({ invoice_file_url: path })
+        .eq('id', payment.id)
+
+      if (updateError) throw updateError
+
+      setPayment((current) => (current ? { ...current, invoice_file_url: path } : current))
+      setInvoiceFileMessage('Fatura anexada com sucesso.')
+    } catch (err) {
+      setInvoiceFileMessage(err.message || 'Não foi possível enviar a fatura.')
+    } finally {
+      setInvoiceUploadBusy(false)
+    }
+  }
+
+  function handleInvoiceFileChange(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (file) uploadInvoiceFile(file)
+  }
+
+  async function handleViewInvoice() {
+    if (!payment?.invoice_file_url) return
+
+    setInvoiceFileMessage('')
+
+    try {
+      const { data, error } = await supabase.storage
+        .from('staff-invoices')
+        .createSignedUrl(payment.invoice_file_url, 3600)
+
+      if (error) throw error
+      if (!data?.signedUrl) throw new Error('Não foi possível abrir a fatura.')
+
+      window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
+    } catch (err) {
+      setInvoiceFileMessage(err.message || 'Não foi possível abrir a fatura.')
+    }
+  }
+
+  async function handleRemoveInvoice() {
+    if (!payment?.invoice_file_url || !payment?.id) return
+
+    const confirmed = window.confirm('Remover a fatura anexada?')
+    if (!confirmed) return
+
+    setInvoiceFileMessage('')
+    setInvoiceBusyMessage('A remover ficheiro…')
+    setInvoiceUploadBusy(true)
+
+    try {
+      const { error: deleteError } = await supabase.storage
+        .from('staff-invoices')
+        .remove([payment.invoice_file_url])
+
+      if (deleteError) throw deleteError
+
+      const { error: updateError } = await supabase
+        .from('staff_app_payments')
+        .update({ invoice_file_url: null })
+        .eq('id', payment.id)
+
+      if (updateError) throw updateError
+
+      setPayment((current) => (current ? { ...current, invoice_file_url: null } : current))
+      setInvoiceFileMessage('Fatura removida.')
+    } catch (err) {
+      setInvoiceFileMessage(err.message || 'Não foi possível remover a fatura.')
+    } finally {
+      setInvoiceUploadBusy(false)
+    }
   }
 
   useEffect(() => {
@@ -612,6 +736,85 @@ export default function JobDetail() {
                   Estado: {PAYMENT_STATUS_LABELS[payment.status] ?? payment.status}
                 </p>
 
+                {hasPaymentDetails ? (
+                  <div className="mt-4 space-y-1.5 text-xs">
+                    {payment.invoice_reference ? (
+                      <CompactDetailRow
+                        label="Referência da fatura"
+                        value={payment.invoice_reference}
+                      />
+                    ) : null}
+                    {payment.invoice_date ? (
+                      <CompactDetailRow
+                        label="Data da fatura"
+                        value={formatDate(payment.invoice_date)}
+                      />
+                    ) : null}
+                    {payment.paid_amount != null ? (
+                      <CompactDetailRow
+                        label="Valor recebido"
+                        value={formatEuro(payment.paid_amount)}
+                      />
+                    ) : null}
+                    {payment.paid_at ? (
+                      <CompactDetailRow
+                        label="Data de pagamento"
+                        value={formatDate(payment.paid_at)}
+                      />
+                    ) : null}
+                    {payment.due_date ? (
+                      <CompactDetailRow label="Data limite" value={formatDate(payment.due_date)} />
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <div className="mt-4">
+                  <input
+                    ref={invoiceFileInputRef}
+                    type="file"
+                    accept="application/pdf,image/*"
+                    className="hidden"
+                    onChange={handleInvoiceFileChange}
+                  />
+
+                  {invoiceUploadBusy ? (
+                    <p className="text-xs text-[#888888]">{invoiceBusyMessage}</p>
+                  ) : payment.invoice_file_url ? (
+                    <div className="flex items-center gap-2 text-xs">
+                      <FileIcon />
+                      <span className="min-w-0 flex-1 truncate text-fg">
+                        {getInvoiceFilename(payment.invoice_file_url)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleViewInvoice}
+                        className="shrink-0 text-accent underline"
+                      >
+                        Ver
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleRemoveInvoice}
+                        className="shrink-0 text-[#888888] underline"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => invoiceFileInputRef.current?.click()}
+                      className="text-sm text-accent underline"
+                    >
+                      + Anexar fatura
+                    </button>
+                  )}
+
+                  {invoiceFileMessage ? (
+                    <p className="mt-2 text-xs text-[#888888]">{invoiceFileMessage}</p>
+                  ) : null}
+                </div>
+
                 {payment.status === 'por_faturar' ? (
                   <button
                     type="button"
@@ -647,38 +850,6 @@ export default function JobDetail() {
                   >
                     Marcar como em atraso
                   </button>
-                ) : null}
-
-                {hasPaymentDetails ? (
-                  <div className="mt-4 space-y-1.5 text-xs">
-                    {payment.invoice_reference ? (
-                      <CompactDetailRow
-                        label="Referência da fatura"
-                        value={payment.invoice_reference}
-                      />
-                    ) : null}
-                    {payment.invoice_date ? (
-                      <CompactDetailRow
-                        label="Data da fatura"
-                        value={formatDate(payment.invoice_date)}
-                      />
-                    ) : null}
-                    {payment.paid_amount != null ? (
-                      <CompactDetailRow
-                        label="Valor recebido"
-                        value={formatEuro(payment.paid_amount)}
-                      />
-                    ) : null}
-                    {payment.paid_at ? (
-                      <CompactDetailRow
-                        label="Data de pagamento"
-                        value={formatDate(payment.paid_at)}
-                      />
-                    ) : null}
-                    {payment.due_date ? (
-                      <CompactDetailRow label="Data limite" value={formatDate(payment.due_date)} />
-                    ) : null}
-                  </div>
                 ) : null}
               </>
             ) : (
