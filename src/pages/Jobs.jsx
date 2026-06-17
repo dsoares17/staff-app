@@ -107,6 +107,127 @@ function getJobTotal(job) {
   return total != null && total > 0 ? total : null
 }
 
+function formatIcsDate(dateISO) {
+  return dateISO.replace(/-/g, '')
+}
+
+function addDaysToIsoDate(dateISO, days) {
+  const date = new Date(`${dateISO}T00:00:00`)
+  date.setDate(date.getDate() + days)
+  return toISODate(date)
+}
+
+function formatIcsDateTime(dateISO, timeStr) {
+  const raw = String(timeStr).slice(0, 8)
+  const [hours = '00', minutes = '00', seconds = '00'] = raw.split(':')
+  return `${formatIcsDate(dateISO)}T${hours.padStart(2, '0')}${minutes.padStart(2, '0')}${seconds.padStart(2, '0')}`
+}
+
+function formatIcsUtcStamp(date = new Date()) {
+  return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
+}
+
+function escapeIcsText(value) {
+  return String(value)
+    .replace(/\\/g, '\\\\')
+    .replace(/\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;')
+}
+
+function foldIcsLine(line) {
+  const maxLen = 75
+  if (line.length <= maxLen) return line
+
+  const parts = [line.slice(0, maxLen)]
+  let remaining = line.slice(maxLen)
+
+  while (remaining.length > 0) {
+    parts.push(` ${remaining.slice(0, maxLen - 1)}`)
+    remaining = remaining.slice(maxLen - 1)
+  }
+
+  return parts.join('\r\n')
+}
+
+function buildJobIcsDescription(job) {
+  const lines = []
+
+  if (job.role) lines.push(`Função: ${job.role}`)
+
+  const total = getJobTotal(job)
+  if (total != null) lines.push(`Valor: ${formatEuro(total)}`)
+
+  if (job.organiser_name) lines.push(`Organizador: ${job.organiser_name}`)
+
+  return lines.join('\n')
+}
+
+function buildJobVEvent(job) {
+  if (!job.start_date) return []
+
+  const endDate = job.end_date || job.start_date
+  const eventLines = [
+    'BEGIN:VEVENT',
+    foldIcsLine(`UID:${job.id}@erario.app`),
+    foldIcsLine(`DTSTAMP:${formatIcsUtcStamp()}`),
+    foldIcsLine(`SUMMARY:${escapeIcsText(job.event_name || 'Trabalho')}`),
+  ]
+
+  if (job.start_time) {
+    eventLines.push(
+      foldIcsLine(`DTSTART:${formatIcsDateTime(job.start_date, job.start_time)}`)
+    )
+  } else {
+    eventLines.push(`DTSTART;VALUE=DATE:${formatIcsDate(job.start_date)}`)
+  }
+
+  if (job.end_time) {
+    eventLines.push(foldIcsLine(`DTEND:${formatIcsDateTime(endDate, job.end_time)}`))
+  } else {
+    eventLines.push(`DTEND;VALUE=DATE:${formatIcsDate(addDaysToIsoDate(endDate, 1))}`)
+  }
+
+  if (job.location) {
+    eventLines.push(foldIcsLine(`LOCATION:${escapeIcsText(job.location)}`))
+  }
+
+  const description = buildJobIcsDescription(job)
+  if (description) {
+    eventLines.push(foldIcsLine(`DESCRIPTION:${escapeIcsText(description)}`))
+  }
+
+  eventLines.push('END:VEVENT')
+  return eventLines
+}
+
+function buildIcsCalendar(jobs) {
+  const eventBlocks = jobs.flatMap((job) => buildJobVEvent(job))
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Erario//Trabalhos//PT',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    ...eventBlocks,
+    'END:VCALENDAR',
+  ]
+
+  return `${lines.join('\r\n')}\r\n`
+}
+
+function downloadIcsFile(content, filename) {
+  const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  document.body.removeChild(anchor)
+  URL.revokeObjectURL(url)
+}
+
 function getJobSpanDays(job) {
   if (!job.start_date) return 0
   const start = new Date(`${job.start_date}T00:00:00`)
@@ -369,6 +490,42 @@ function CalendarIcon({ active }) {
   )
 }
 
+function ExportIcon({ loading }) {
+  if (loading) {
+    return (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="h-5 w-5 animate-spin text-[#888888]"
+      >
+        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-5 w-5 text-[#888888]"
+    >
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  )
+}
+
 function JobsCalendar({ jobs, onJobClick }) {
   const today = todayISO()
   const [calendarMonth, setCalendarMonth] = useState(() => {
@@ -533,6 +690,15 @@ export default function Jobs() {
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState('list')
+  const [exporting, setExporting] = useState(false)
+  const [exportMessage, setExportMessage] = useState('')
+
+  useEffect(() => {
+    if (!exportMessage) return undefined
+
+    const timer = window.setTimeout(() => setExportMessage(''), 3000)
+    return () => window.clearTimeout(timer)
+  }, [exportMessage])
 
   useEffect(() => {
     if (authLoading) return undefined
@@ -581,6 +747,38 @@ export default function Jobs() {
     navigate(`/jobs/${jobId}`)
   }
 
+  async function handleExportCalendar() {
+    if (!user?.id || exporting) return
+
+    setExportMessage('')
+    setExporting(true)
+
+    try {
+      const { data, error } = await supabase
+        .from('staff_app_jobs')
+        .select('*')
+        .eq('staff_app_user_id', user.id)
+        .neq('status', 'cancelled')
+
+      if (error) throw error
+
+      const exportJobs = (data ?? []).filter((job) => job.start_date)
+
+      if (exportJobs.length === 0) {
+        setExportMessage('Sem trabalhos para exportar')
+        return
+      }
+
+      const icsContent = buildIcsCalendar(exportJobs)
+      downloadIcsFile(icsContent, 'erario-trabalhos.ics')
+    } catch (err) {
+      console.error('Erro ao exportar calendário:', err.message)
+      setExportMessage('Não foi possível exportar o calendário')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="relative px-4">
       <header className="flex items-center justify-between pb-2 pt-4">
@@ -602,6 +800,17 @@ export default function Jobs() {
           >
             <CalendarIcon active={viewMode === 'calendar'} />
           </button>
+          {viewMode === 'calendar' ? (
+            <button
+              type="button"
+              onClick={handleExportCalendar}
+              disabled={exporting || authLoading}
+              aria-label="Exportar calendário"
+              className="flex h-10 w-10 items-center justify-center rounded-full transition-colors active:bg-surface disabled:opacity-60"
+            >
+              <ExportIcon loading={exporting} />
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={handleAddJob}
@@ -612,6 +821,10 @@ export default function Jobs() {
           </button>
         </div>
       </header>
+
+      {exportMessage ? (
+        <p className="pb-1 text-center text-sm text-[#888888]">{exportMessage}</p>
+      ) : null}
 
       {authLoading || loading ? (
         <div className="mt-4 space-y-3">
