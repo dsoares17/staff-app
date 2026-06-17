@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useAuth } from '../context/AuthContext.jsx'
 import { formatEuro, roundMoney } from '../lib/money.js'
+import { supabase } from '../lib/supabaseClient.js'
 
 const fieldClass =
   'w-full rounded-lg border bg-surface px-3 py-3 text-sm text-fg outline-none transition focus:border-accent'
@@ -148,6 +150,54 @@ export function calcReceivableFromFormState(formState) {
   return roundMoney(baseTotal + hourlyExtra)
 }
 
+function getSuggestionSpanDays(job) {
+  if (!job.start_date) return 1
+  const start = new Date(`${job.start_date}T00:00:00`)
+  const end = new Date(`${job.end_date || job.start_date}T00:00:00`)
+  const diffDays = Math.floor((end - start) / (1000 * 60 * 60 * 24)) + 1
+  return diffDays > 0 ? diffDays : 1
+}
+
+function formatSuggestionRateSummary(job) {
+  const paymentMode =
+    job.flat_total != null && Number(job.flat_total) > 0 ? 'flat' : 'daily'
+  let summary = ''
+
+  if (paymentMode === 'daily') {
+    const workRate = Number(job.work_rate)
+    if (Number.isFinite(workRate) && workRate > 0) {
+      summary = `${formatEuro(workRate)}/dia`
+    }
+  } else {
+    const flatTotal = Number(job.flat_total)
+    if (Number.isFinite(flatTotal) && flatTotal > 0) {
+      const spanDays = getSuggestionSpanDays(job)
+      const impliedDaily = roundMoney(flatTotal / spanDays)
+      if (impliedDaily != null && impliedDaily > 0) {
+        summary = `${formatEuro(impliedDaily)}/dia`
+      }
+    }
+  }
+
+  const hourlyRate = Number(job.hourly_rate)
+  const hours = Number(job.hours)
+  if (
+    Number.isFinite(hourlyRate) &&
+    Number.isFinite(hours) &&
+    hourlyRate > 0 &&
+    hours > 0
+  ) {
+    const hourlyPart = `${formatEuro(hourlyRate)}/hora extra`
+    summary = summary ? `${summary} + ${hourlyPart}` : hourlyPart
+  }
+
+  return summary || null
+}
+
+function formatSuggestionMeta(job) {
+  return [job.event_name, job.organiser_name, job.role].filter(Boolean).join(' · ')
+}
+
 export function jobToFormValues(job) {
   const paymentMode =
     job.flat_total != null && Number(job.flat_total) > 0 ? 'flat' : 'daily'
@@ -248,6 +298,8 @@ export function buildJobPayload(formState) {
 }
 
 export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit }) {
+  const { user } = useAuth()
+  const isAddMode = !initialJob
   const [eventName, setEventName] = useState('')
   const [status, setStatus] = useState('confirmed')
   const [organiserName, setOrganiserName] = useState('')
@@ -279,6 +331,58 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
   const [transportTravelRate, setTransportTravelRate] = useState('')
   const [accommodationExpanded, setAccommodationExpanded] = useState(false)
   const [accommodationType, setAccommodationType] = useState('none')
+  const [debouncedEventName, setDebouncedEventName] = useState('')
+  const [suggestedJob, setSuggestedJob] = useState(null)
+  const [suggestionDismissed, setSuggestionDismissed] = useState(false)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedEventName(eventName.trim()), 400)
+    return () => window.clearTimeout(timer)
+  }, [eventName])
+
+  useEffect(() => {
+    setSuggestionDismissed(false)
+  }, [debouncedEventName])
+
+  useEffect(() => {
+    if (!isAddMode || !user?.id) {
+      setSuggestedJob(null)
+      return undefined
+    }
+
+    if (debouncedEventName.length < 3) {
+      setSuggestedJob(null)
+      return undefined
+    }
+
+    let active = true
+
+    async function fetchSuggestion() {
+      const { data, error: fetchError } = await supabase
+        .from('staff_app_jobs')
+        .select('*')
+        .eq('staff_app_user_id', user.id)
+        .ilike('event_name', `%${debouncedEventName}%`)
+        .order('start_date', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (!active) return
+
+      if (fetchError) {
+        setSuggestedJob(null)
+        return
+      }
+
+      setSuggestedJob(data)
+    }
+
+    fetchSuggestion()
+
+    return () => {
+      active = false
+    }
+  }, [isAddMode, user?.id, debouncedEventName])
 
   useEffect(() => {
     if (!initialJob) return
@@ -388,6 +492,46 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
     return total != null && total > 0 ? total : null
   }, [transportTravelDays, transportTravelRate])
 
+  function handleUseSuggestion() {
+    if (!suggestedJob) return
+
+    const values = jobToFormValues(suggestedJob)
+    setOrganiserName(values.organiserName)
+    setRole(values.role)
+    setLocation(values.location)
+    setPaymentMode(values.paymentMode)
+    setWorkDays(values.workDays)
+    setWorkRate(values.workRate)
+    setFlatTotal(values.flatTotal)
+    setHourlyExpanded(values.hourlyExpanded)
+    setHourlyRate(values.hourlyRate)
+    setHours(values.hours)
+    setTransportExpanded(values.transportExpanded)
+    setTransportType(values.transportType)
+    setTransportKmRate(values.transportKmRate)
+    setTransportKms(values.transportKms)
+    setTransportTolls(values.transportTolls)
+    setTransportTravelDays(values.transportTravelDays)
+    setTransportTravelRate(values.transportTravelRate)
+    setMealsExpanded(values.mealsExpanded)
+    setMealsType(values.mealsType)
+    setMealsRate(values.mealsRate)
+    setMealsCount(values.mealsCount)
+    setAccommodationExpanded(values.accommodationExpanded)
+    setAccommodationType(values.accommodationType)
+    setNotes(values.notes)
+    setSuggestedJob(null)
+    setSuggestionDismissed(true)
+  }
+
+  const suggestedJobRateSummary = useMemo(
+    () => (suggestedJob ? formatSuggestionRateSummary(suggestedJob) : null),
+    [suggestedJob]
+  )
+
+  const showSuggestion =
+    isAddMode && suggestedJob && !suggestionDismissed
+
   function handleSubmit(e) {
     e.preventDefault()
 
@@ -437,6 +581,38 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
             onChange={(e) => setEventName(e.target.value)}
             required
           />
+
+          {showSuggestion ? (
+            <div
+              className="relative mt-2 rounded-lg p-3"
+              style={{ backgroundColor: '#1A1A1A', border: '1px solid #FFC70030' }}
+            >
+              <button
+                type="button"
+                onClick={() => setSuggestionDismissed(true)}
+                aria-label="Dispensar sugestão"
+                className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center text-sm text-[#888888]"
+              >
+                ×
+              </button>
+
+              <p className="text-xs text-[#888888]">Encontrámos um trabalho parecido</p>
+              <p className="mt-1 pr-6 text-sm font-medium text-fg">
+                {formatSuggestionMeta(suggestedJob)}
+              </p>
+              {suggestedJobRateSummary ? (
+                <p className="mt-1 text-sm text-accent">{suggestedJobRateSummary}</p>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={handleUseSuggestion}
+                className="mt-3 w-full rounded-lg bg-accent py-2 text-sm font-medium text-[#000000]"
+              >
+                Usar estes dados
+              </button>
+            </div>
+          ) : null}
         </label>
 
         <div>
