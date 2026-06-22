@@ -25,9 +25,19 @@ export default async function handler(req) {
     body,
   });
 
-  const data = await response.text();
-  return new Response(data, {
+  if (!response.ok) {
+    const data = await response.text();
+    return new Response(data, {
+      status: response.status,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  return new Response(response.body, {
     status: response.status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+    },
   });
 }
