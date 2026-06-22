@@ -13,6 +13,7 @@ import ImportReview from './pages/ImportReview.jsx'
 import Finances from './pages/Finances.jsx'
 import Financeiro from './pages/Financeiro.jsx'
 import Organizadores from './pages/Organizadores.jsx'
+import OrganiserDetail from './pages/OrganiserDetail.jsx'
 import Expenses from './pages/Expenses.jsx'
 import AddExpense from './pages/AddExpense.jsx'
 import ScanExpense from './pages/ScanExpense.jsx'
@@ -41,6 +42,8 @@ export default function App() {
             <Route path="/jobs/:id" element={<JobDetail />} />
             <Route path="/financeiro" element={<Financeiro />} />
             <Route path="/organizadores" element={<Organizadores />} />
+            <Route path="/organizadores/new" element={<OrganiserDetail />} />
+            <Route path="/organizadores/:id" element={<OrganiserDetail />} />
             <Route path="/finances" element={<Finances />} />
             <Route path="/expenses" element={<Expenses />} />
             <Route path="/expenses/scan" element={<ScanExpense />} />
