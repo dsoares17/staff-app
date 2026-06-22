@@ -51,6 +51,40 @@ ${text}
 Responde APENAS com o array JSON, sem texto adicional, sem markdown.`
 }
 
+function buildFileImportPrompt(text) {
+  return `Analisa o seguinte texto exportado de um ficheiro Excel ou CSV com informação sobre trabalhos/eventos de um freelancer de eventos. Extrai cada trabalho mencionado e devolve um array JSON com esta estrutura para cada trabalho:
+{
+  event_name: string,
+  organiser_name: string ou null,
+  role: string ou null,
+  location: string ou null,
+  start_date: string formato YYYY-MM-DD,
+  end_date: string formato YYYY-MM-DD ou null se for o mesmo dia,
+  payment_mode: 'daily' ou 'flat',
+  rate: number ou null,
+  payment_status: 'pago' | 'por_faturar' | 'em_atraso' | null,
+  notes: string ou null
+}
+
+REGRAS IMPORTANTES:
+- Se o valor mencionado tiver indicação explícita de ser por dia (ex: '140/dia', '140 por dia', '140€ diários'), usa payment_mode 'daily'.
+- Se não houver indicação explícita de ser por dia, assume payment_mode 'flat' (valor total do trabalho).
+- Se não conseguires determinar uma data específica, usa null nesse campo e não inventes datas.
+- O ano atual é ${CURRENT_YEAR}. Se não houver ano mencionado no texto, assume o ano atual.
+- Não inventes informação que não esteja no texto.
+- Extrai payment_status quando o ficheiro indicar estado de pagamento:
+  - "pago" → 'pago'
+  - "por pagar" → 'em_atraso'
+  - "por faturar" → 'por_faturar'
+  - "por confirmar" → null (trabalho ainda por confirmar)
+  - Se não houver informação de estado → null
+
+Texto a analisar:
+${text}
+
+Responde APENAS com o array JSON, sem texto adicional, sem markdown.`
+}
+
 function buildPhotoImportPrompt() {
   return `Esta imagem mostra uma agenda, calendário, notas ou horário de trabalhos de um freelancer de eventos (pode ser um print de uma app de notas, calendário do telemóvel, ou papel escrito à mão). Analisa a imagem e extrai cada trabalho/evento mencionado. Devolve um array JSON com esta estrutura para cada trabalho:
 {
@@ -162,9 +196,78 @@ function formatCellValue(value) {
   return String(value).trim()
 }
 
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.onerror = reject
+    reader.readAsText(file)
+  })
+}
+
+function formatStructuredSpreadsheetRows(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new Error('empty')
+  }
+
+  const normalizedRows = rows
+    .map((row) => {
+      const cells = Array.isArray(row) ? row : [row]
+      return cells.map(formatCellValue)
+    })
+    .filter((cells) => cells.some((cell) => cell.length > 0))
+
+  if (normalizedRows.length === 0) {
+    throw new Error('empty')
+  }
+
+  const [headerRow, ...dataRows] = normalizedRows
+  const headers = headerRow.map((header, index) => header || `Coluna ${index + 1}`)
+  const hasStructuredHeaders = dataRows.length > 0 && headers.some((header) => header.length > 0)
+
+  if (hasStructuredHeaders) {
+    const lines = dataRows
+      .map((cells) =>
+        headers
+          .map((header, index) => {
+            const value = cells[index] ?? ''
+            if (!value) return null
+            return `${header}: ${value}`
+          })
+          .filter(Boolean)
+          .join(' | ')
+      )
+      .filter((line) => line.length > 0)
+
+    if (lines.length === 0) {
+      throw new Error('empty')
+    }
+
+    return lines.join('\n')
+  }
+
+  const lines = normalizedRows
+    .map((cells) => cells.filter(Boolean).join(' | '))
+    .filter((line) => line.length > 0)
+
+  if (lines.length === 0) {
+    throw new Error('empty')
+  }
+
+  return lines.join('\n')
+}
+
 async function flattenSpreadsheetToText(file) {
-  const buffer = await file.arrayBuffer()
-  const workbook = XLSX.read(buffer, { type: 'array' })
+  let workbook
+
+  if (file.name.toLowerCase().endsWith('.csv')) {
+    const csvText = await readFileAsText(file)
+    workbook = XLSX.read(csvText, { type: 'string' })
+  } else {
+    const buffer = await file.arrayBuffer()
+    workbook = XLSX.read(buffer, { type: 'array' })
+  }
+
   const firstSheetName = workbook.SheetNames[0]
 
   if (!firstSheetName) {
@@ -174,22 +277,7 @@ async function flattenSpreadsheetToText(file) {
   const sheet = workbook.Sheets[firstSheetName]
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
 
-  if (!Array.isArray(rows) || rows.length === 0) {
-    throw new Error('empty')
-  }
-
-  const lines = rows
-    .map((row) => {
-      const cells = Array.isArray(row) ? row : [row]
-      return cells.map(formatCellValue).join(' | ')
-    })
-    .filter((line) => line.replace(/\s*\|\s*/g, '').trim().length > 0)
-
-  if (lines.length === 0) {
-    throw new Error('empty')
-  }
-
-  return lines.join('\n')
+  return formatStructuredSpreadsheetRows(rows)
 }
 
 export default function ImportJobs() {
@@ -285,6 +373,27 @@ export default function ImportJobs() {
     return parsed
   }
 
+  async function analyzeImportedFile(text) {
+    const responseText = await callAnthropic({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: buildFileImportPrompt(text) }],
+        },
+      ],
+    })
+
+    const parsed = parseJsonArrayFromAiText(responseText)
+
+    if (parsed.length === 0) {
+      throw new Error('Nenhum trabalho encontrado.')
+    }
+
+    return parsed
+  }
+
   async function analyzeImportedImage(imageFile, wasHeic) {
     const base64 = await fileToBase64(imageFile)
     const mediaType = wasHeic
@@ -359,7 +468,7 @@ export default function ImportJobs() {
         return
       }
 
-      const parsed = await analyzeImportedText(flattenedText)
+      const parsed = await analyzeImportedFile(flattenedText)
       openYearGateOrProceed(parsed)
     } catch {
       setError(

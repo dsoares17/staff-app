@@ -127,6 +127,10 @@ async function enrichParsedJobs(jobs, userId) {
 }
 
 function parsedJobToCard(job) {
+  const paymentStatus = ['pago', 'por_faturar', 'em_atraso'].includes(job.payment_status)
+    ? job.payment_status
+    : null
+
   return {
     id: crypto.randomUUID(),
     checked: true,
@@ -138,6 +142,7 @@ function parsedJobToCard(job) {
     endDate: job.end_date ?? '',
     paymentMode: job.payment_mode === 'flat' ? 'flat' : 'daily',
     rate: job.rate != null && Number(job.rate) > 0 ? String(job.rate) : '',
+    paymentStatus,
     notes: job.notes ?? '',
   }
 }
@@ -402,12 +407,20 @@ export default function ImportReview() {
 
         if (jobError) throw jobError
 
-        const { error: paymentError } = await supabase.from('staff_app_payments').insert({
+        const paymentPayload = {
           staff_app_user_id: user.id,
           job_id: job.id,
-          status: 'por_faturar',
+          status: card.paymentStatus ?? 'por_faturar',
           expected_amount: expectedAmount,
-        })
+        }
+
+        if (card.paymentStatus === 'pago') {
+          paymentPayload.paid_at = new Date().toISOString()
+        }
+
+        const { error: paymentError } = await supabase
+          .from('staff_app_payments')
+          .insert(paymentPayload)
 
         if (paymentError) throw paymentError
 
