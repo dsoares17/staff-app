@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import heic2any from 'heic2any'
 import * as XLSX from 'xlsx'
+import { callAnthropic } from '../lib/anthropicClient.js'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const AI_PURPLE = '#A855F7'
@@ -264,31 +265,18 @@ export default function ImportJobs() {
   }
 
   async function analyzeImportedText(text) {
-    const response = await fetch('/api/anthropic', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 4096,
-        messages: [
-          {
-            role: 'user',
-            content: [{ type: 'text', text: buildImportPrompt(text) }],
-          },
-        ],
-      }),
+    const responseText = await callAnthropic({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: buildImportPrompt(text) }],
+        },
+      ],
     })
 
-    const body = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      throw new Error(body?.error?.message || 'Pedido à IA falhou.')
-    }
-
-    const textBlock = body?.content?.find((block) => block.type === 'text')
-    const parsed = parseJsonArrayFromAiText(textBlock?.text)
+    const parsed = parseJsonArrayFromAiText(responseText)
 
     if (parsed.length === 0) {
       throw new Error('Nenhum trabalho encontrado.')
@@ -305,41 +293,28 @@ export default function ImportJobs() {
         ? 'image/png'
         : 'image/jpeg'
 
-    const response = await fetch('/api/anthropic', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 4096,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: mediaType,
-                  data: base64,
-                },
+    const responseText = await callAnthropic({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: mediaType,
+                data: base64,
               },
-              { type: 'text', text: buildPhotoImportPrompt() },
-            ],
-          },
-        ],
-      }),
+            },
+            { type: 'text', text: buildPhotoImportPrompt() },
+          ],
+        },
+      ],
     })
 
-    const body = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      throw new Error(body?.error?.message || 'Pedido à IA falhou.')
-    }
-
-    const textBlock = body?.content?.find((block) => block.type === 'text')
-    return parseJsonArrayFromAiText(textBlock?.text)
+    return parseJsonArrayFromAiText(responseText)
   }
 
   async function handleAnalyzeText() {

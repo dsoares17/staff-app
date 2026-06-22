@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import heic2any from 'heic2any'
 import { useAuth } from '../context/AuthContext.jsx'
+import { callAnthropic } from '../lib/anthropicClient.js'
 import { supabase } from '../lib/supabaseClient.js'
 
 const fieldClass =
@@ -163,41 +164,28 @@ export default function AddExpense() {
       const base64 = await fileToBase64(imageFile)
       const mediaType = wasHeic ? 'image/jpeg' : imageFile.type === 'image/png' ? 'image/png' : 'image/jpeg'
 
-      const response = await fetch('/api/anthropic', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 1000,
-          messages: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'image',
-                  source: {
-                    type: 'base64',
-                    media_type: mediaType,
-                    data: base64,
-                  },
+      const responseText = await callAnthropic({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: mediaType,
+                  data: base64,
                 },
-                { type: 'text', text: RECEIPT_PROMPT },
-              ],
-            },
-          ],
-        }),
+              },
+              { type: 'text', text: RECEIPT_PROMPT },
+            ],
+          },
+        ],
       })
 
-      const body = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(body?.error?.message || 'Pedido à IA falhou.')
-      }
-
-      const textBlock = body?.content?.find((block) => block.type === 'text')
-      const parsed = parseJsonFromAiText(textBlock?.text)
+      const parsed = parseJsonFromAiText(responseText)
 
       if (parsed.description) setDescription(String(parsed.description))
       if (parsed.amount != null) setAmount(String(parsed.amount))
