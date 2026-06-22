@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { formatEuro, roundMoney } from '../lib/money.js'
 import { supabase } from '../lib/supabaseClient.js'
@@ -73,6 +73,227 @@ function PillToggle({ options, value, onChange, columns = 2 }) {
           {option.label}
         </button>
       ))}
+    </div>
+  )
+}
+
+function escapeIlike(value) {
+  return value.replace(/[%_\\]/g, '\\$&')
+}
+
+function OrganiserComboField({
+  userId,
+  inputValue,
+  selectedOrganiser,
+  createExpanded,
+  createFields,
+  onInputChange,
+  onSelectOrganiser,
+  onClearSelection,
+  onStartCreate,
+  onCreateFieldChange,
+}) {
+  const containerRef = useRef(null)
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [searching, setSearching] = useState(false)
+
+  const trimmedInput = inputValue.trim()
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(trimmedInput), 300)
+    return () => window.clearTimeout(timer)
+  }, [trimmedInput])
+
+  useEffect(() => {
+    if (!dropdownOpen || selectedOrganiser || !userId || debouncedQuery.length === 0) {
+      setSearchResults([])
+      setSearching(false)
+      return undefined
+    }
+
+    let active = true
+    setSearching(true)
+
+    async function fetchOrganisers() {
+      const { data, error } = await supabase
+        .from('staff_app_organisers')
+        .select('id, name, nif, email, phone')
+        .eq('staff_app_user_id', userId)
+        .ilike('name', `%${escapeIlike(debouncedQuery)}%`)
+        .order('name', { ascending: true })
+        .limit(5)
+
+      if (!active) return
+
+      setSearchResults(error ? [] : data ?? [])
+      setSearching(false)
+    }
+
+    fetchOrganisers()
+
+    return () => {
+      active = false
+    }
+  }, [debouncedQuery, dropdownOpen, selectedOrganiser, userId])
+
+  useEffect(() => {
+    function handlePointerDown(event) {
+      if (!containerRef.current?.contains(event.target)) {
+        setDropdownOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('touchstart', handlePointerDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('touchstart', handlePointerDown)
+    }
+  }, [])
+
+  const exactMatch = searchResults.some(
+    (organiser) => organiser.name.toLowerCase() === trimmedInput.toLowerCase()
+  )
+  const showCreateOption = trimmedInput.length > 0 && !exactMatch && !selectedOrganiser
+  const showDropdown =
+    dropdownOpen && !selectedOrganiser && trimmedInput.length > 0 && (searching || showCreateOption || searchResults.length > 0)
+
+  function handleSelect(organiser) {
+    onSelectOrganiser(organiser)
+    setDropdownOpen(false)
+  }
+
+  function handleStartCreate() {
+    onStartCreate()
+    setDropdownOpen(false)
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <input
+        className={fieldClass}
+        style={fieldStyle}
+        type="text"
+        value={inputValue}
+        onChange={(e) => {
+          onInputChange(e.target.value)
+          setDropdownOpen(true)
+        }}
+        onFocus={() => {
+          if (!selectedOrganiser) setDropdownOpen(true)
+        }}
+        autoComplete="off"
+      />
+
+      {selectedOrganiser ? (
+        <div className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-full bg-accent/20 px-2.5 py-1 text-xs text-accent">
+          <span className="truncate">
+            {selectedOrganiser.name}
+            {selectedOrganiser.nif ? ` · NIF: ${selectedOrganiser.nif}` : ''}
+          </span>
+          <button
+            type="button"
+            onClick={onClearSelection}
+            aria-label="Remover organizador"
+            className="shrink-0 text-sm leading-none text-accent"
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
+
+      {showDropdown ? (
+        <div
+          className="absolute left-0 right-0 z-20 mt-1 overflow-hidden rounded-lg border shadow-lg"
+          style={{ backgroundColor: '#141414', borderColor: '#222222' }}
+        >
+          {searching && searchResults.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-[#888888]">A pesquisar…</p>
+          ) : null}
+
+          {!searching && searchResults.length === 0 && showCreateOption ? (
+            <button
+              type="button"
+              onClick={handleStartCreate}
+              className="block w-full px-3 py-2.5 text-left text-sm text-fg active:bg-[#1A1A1A]"
+            >
+              Nenhum organizador encontrado — Criar &apos;{trimmedInput}&apos;?
+            </button>
+          ) : (
+            <>
+              {searchResults.map((organiser) => (
+                <button
+                  key={organiser.id}
+                  type="button"
+                  onClick={() => handleSelect(organiser)}
+                  className="block w-full border-b px-3 py-2.5 text-left last:border-b-0 active:bg-[#1A1A1A]"
+                  style={{ borderColor: '#222222' }}
+                >
+                  <p className="text-sm text-fg">{organiser.name}</p>
+                  {organiser.nif ? (
+                    <p className="mt-0.5 text-xs text-[#888888]">NIF: {organiser.nif}</p>
+                  ) : null}
+                </button>
+              ))}
+
+              {showCreateOption ? (
+                <button
+                  type="button"
+                  onClick={handleStartCreate}
+                  className="block w-full px-3 py-2.5 text-left text-sm text-accent active:bg-[#1A1A1A]"
+                >
+                  ➕ Criar &apos;{trimmedInput}&apos;
+                </button>
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : null}
+
+      {createExpanded && !selectedOrganiser && trimmedInput ? (
+        <div
+          className="mt-3 space-y-3 rounded-lg border p-3"
+          style={{ borderColor: '#222222', backgroundColor: '#1A1A1A' }}
+        >
+          <p className="text-xs text-[#888888]">Novo organizador: {trimmedInput}</p>
+
+          <label className="block">
+            <span className="mb-1 block text-xs text-[#888888]">NIF</span>
+            <input
+              className={fieldClass}
+              style={fieldStyle}
+              type="text"
+              inputMode="numeric"
+              value={createFields.nif}
+              onChange={(e) => onCreateFieldChange('nif', e.target.value)}
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-xs text-[#888888]">Email</span>
+            <input
+              className={fieldClass}
+              style={fieldStyle}
+              type="email"
+              value={createFields.email}
+              onChange={(e) => onCreateFieldChange('email', e.target.value)}
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-xs text-[#888888]">Telefone</span>
+            <input
+              className={fieldClass}
+              style={fieldStyle}
+              type="tel"
+              value={createFields.phone}
+              onChange={(e) => onCreateFieldChange('phone', e.target.value)}
+            />
+          </label>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -266,6 +487,7 @@ export function buildJobPayload(formState) {
   return {
     jobData: {
       event_name: formState.eventName.trim(),
+      organiser_id: formState.organiserId ?? null,
       organiser_name: formState.organiserName.trim() || null,
       role: formState.role.trim() || null,
       location: formState.location.trim() || null,
@@ -302,7 +524,15 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
   const isAddMode = !initialJob
   const [eventName, setEventName] = useState('')
   const [status, setStatus] = useState('confirmed')
-  const [organiserName, setOrganiserName] = useState('')
+  const [organiserInput, setOrganiserInput] = useState('')
+  const [selectedOrganiser, setSelectedOrganiser] = useState(null)
+  const [organiserCreateExpanded, setOrganiserCreateExpanded] = useState(false)
+  const [newOrganiserFields, setNewOrganiserFields] = useState({
+    nif: '',
+    email: '',
+    phone: '',
+  })
+  const [organiserSubmitError, setOrganiserSubmitError] = useState('')
   const [role, setRole] = useState('')
   const [location, setLocation] = useState('')
   const [startDate, setStartDate] = useState('')
@@ -390,7 +620,6 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
     const values = jobToFormValues(initialJob)
     setEventName(values.eventName)
     setStatus(values.status)
-    setOrganiserName(values.organiserName)
     setRole(values.role)
     setLocation(values.location)
     setStartDate(values.startDate)
@@ -419,7 +648,120 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
     setTransportTravelRate(values.transportTravelRate)
     setAccommodationExpanded(values.accommodationExpanded)
     setAccommodationType(values.accommodationType)
-  }, [initialJob])
+    setOrganiserCreateExpanded(false)
+    setNewOrganiserFields({ nif: '', email: '', phone: '' })
+    setOrganiserSubmitError('')
+
+    let active = true
+
+    async function loadOrganiser() {
+      if (initialJob.organiser_id && user?.id) {
+        const { data } = await supabase
+          .from('staff_app_organisers')
+          .select('id, name, nif, email, phone')
+          .eq('id', initialJob.organiser_id)
+          .eq('staff_app_user_id', user.id)
+          .maybeSingle()
+
+        if (!active) return
+
+        if (data) {
+          setSelectedOrganiser(data)
+          setOrganiserInput(data.name)
+          return
+        }
+      }
+
+      setSelectedOrganiser(null)
+      setOrganiserInput(values.organiserName)
+    }
+
+    loadOrganiser()
+
+    return () => {
+      active = false
+    }
+  }, [initialJob, user?.id])
+
+  function handleOrganiserInputChange(value) {
+    setOrganiserInput(value)
+    setOrganiserSubmitError('')
+    if (selectedOrganiser && value !== selectedOrganiser.name) {
+      setSelectedOrganiser(null)
+    }
+    setOrganiserCreateExpanded(false)
+    setNewOrganiserFields({ nif: '', email: '', phone: '' })
+  }
+
+  function handleSelectOrganiser(organiser) {
+    setSelectedOrganiser(organiser)
+    setOrganiserInput(organiser.name)
+    setOrganiserCreateExpanded(false)
+    setNewOrganiserFields({ nif: '', email: '', phone: '' })
+    setOrganiserSubmitError('')
+  }
+
+  function handleClearOrganiserSelection() {
+    setSelectedOrganiser(null)
+    setOrganiserInput('')
+    setOrganiserCreateExpanded(false)
+    setNewOrganiserFields({ nif: '', email: '', phone: '' })
+  }
+
+  function handleStartOrganiserCreate() {
+    setSelectedOrganiser(null)
+    setOrganiserCreateExpanded(true)
+    setOrganiserSubmitError('')
+  }
+
+  function handleNewOrganiserFieldChange(field, value) {
+    setNewOrganiserFields((current) => ({ ...current, [field]: value }))
+  }
+
+  async function resolveOrganiserForSubmit() {
+    const trimmedName = organiserInput.trim()
+
+    if (!trimmedName) {
+      return { organiserId: null, organiserName: null }
+    }
+
+    if (selectedOrganiser) {
+      return {
+        organiserId: selectedOrganiser.id,
+        organiserName: selectedOrganiser.name,
+      }
+    }
+
+    if (organiserCreateExpanded) {
+      if (!user?.id) {
+        throw new Error('Sessão inválida.')
+      }
+
+      const { data, error: insertError } = await supabase
+        .from('staff_app_organisers')
+        .insert({
+          staff_app_user_id: user.id,
+          name: trimmedName,
+          nif: newOrganiserFields.nif.trim() || null,
+          email: newOrganiserFields.email.trim() || null,
+          phone: newOrganiserFields.phone.trim() || null,
+        })
+        .select('id, name, nif')
+        .single()
+
+      if (insertError) throw insertError
+
+      return {
+        organiserId: data.id,
+        organiserName: data.name,
+      }
+    }
+
+    return {
+      organiserId: null,
+      organiserName: trimmedName,
+    }
+  }
 
   const workSubtotal = useMemo(() => {
     const days = parseInteger(workDays) ?? 0
@@ -492,11 +834,33 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
     return total != null && total > 0 ? total : null
   }, [transportTravelDays, transportTravelRate])
 
-  function handleUseSuggestion() {
+  async function handleUseSuggestion() {
     if (!suggestedJob) return
 
     const values = jobToFormValues(suggestedJob)
-    setOrganiserName(values.organiserName)
+
+    if (suggestedJob.organiser_id && user?.id) {
+      const { data } = await supabase
+        .from('staff_app_organisers')
+        .select('id, name, nif, email, phone')
+        .eq('id', suggestedJob.organiser_id)
+        .eq('staff_app_user_id', user.id)
+        .maybeSingle()
+
+      if (data) {
+        setSelectedOrganiser(data)
+        setOrganiserInput(data.name)
+      } else {
+        setSelectedOrganiser(null)
+        setOrganiserInput(values.organiserName)
+      }
+    } else {
+      setSelectedOrganiser(null)
+      setOrganiserInput(values.organiserName)
+    }
+
+    setOrganiserCreateExpanded(false)
+    setNewOrganiserFields({ nif: '', email: '', phone: '' })
     setRole(values.role)
     setLocation(values.location)
     setPaymentMode(values.paymentMode)
@@ -532,13 +896,27 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
   const showSuggestion =
     isAddMode && suggestedJob && !suggestionDismissed
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
+    setOrganiserSubmitError('')
+
+    let organiserId = null
+    let organiserName = null
+
+    try {
+      const resolved = await resolveOrganiserForSubmit()
+      organiserId = resolved.organiserId
+      organiserName = resolved.organiserName
+    } catch (err) {
+      setOrganiserSubmitError(err.message || 'Não foi possível criar o organizador.')
+      return
+    }
 
     const payload = buildJobPayload({
       eventName,
       status,
-      organiserName,
+      organiserId,
+      organiserName: organiserName ?? '',
       role,
       location,
       startDate,
@@ -620,16 +998,24 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
           <JobStatusToggle value={status} onChange={setStatus} />
         </div>
 
-        <label className="block">
+        <div className="block">
           <span className="mb-1.5 block text-sm text-muted">Organizador</span>
-          <input
-            className={fieldClass}
-            style={fieldStyle}
-            type="text"
-            value={organiserName}
-            onChange={(e) => setOrganiserName(e.target.value)}
+          <OrganiserComboField
+            userId={user?.id}
+            inputValue={organiserInput}
+            selectedOrganiser={selectedOrganiser}
+            createExpanded={organiserCreateExpanded}
+            createFields={newOrganiserFields}
+            onInputChange={handleOrganiserInputChange}
+            onSelectOrganiser={handleSelectOrganiser}
+            onClearSelection={handleClearOrganiserSelection}
+            onStartCreate={handleStartOrganiserCreate}
+            onCreateFieldChange={handleNewOrganiserFieldChange}
           />
-        </label>
+          {organiserSubmitError ? (
+            <p className="mt-1.5 text-xs text-danger">{organiserSubmitError}</p>
+          ) : null}
+        </div>
 
         <label className="block">
           <span className="mb-1.5 block text-sm text-muted">Função</span>
