@@ -329,13 +329,20 @@ function getPastYearsFromRows(normalizedRows) {
   return [...years].filter((year) => year !== CURRENT_YEAR).sort((a, b) => a - b)
 }
 
+function cellMatchesCurrentYear(cell) {
+  if (cell instanceof Date) {
+    return cell.getFullYear() === CURRENT_YEAR
+  }
+
+  return String(cell).includes(String(CURRENT_YEAR))
+}
+
 function filterRowsToCurrentYear(normalizedRows) {
   const [headerRow, ...dataRows] = normalizedRows
-  const yearStr = String(CURRENT_YEAR)
 
   const filteredData = dataRows.filter((row) => {
     const cells = Array.isArray(row) ? row : [row]
-    return cells.some((cell) => formatCellValue(cell).includes(yearStr))
+    return cells.some((cell) => cellMatchesCurrentYear(cell))
   })
 
   if (filteredData.length === 0) {
@@ -537,10 +544,27 @@ export default function ImportJobs() {
 
   async function runFileImportWithRows(rows, { includeAllYears, filterToCurrentYear = false }) {
     const allRows = rows
+
+    if (filterToCurrentYear) {
+      console.log('All rows sample (rows 10-20):', JSON.stringify(allRows.slice(10, 20)))
+    }
+
     const rowsToSend = filterToCurrentYear ? filterRowsToCurrentYear(rows) : rows
     const filteredRows = rowsToSend
 
     if (filterToCurrentYear) {
+      console.log(
+        'Dropped rows:',
+        allRows
+          .filter(
+            (row) =>
+              !filteredRows.some(
+                (filteredRow) => JSON.stringify(filteredRow) === JSON.stringify(row)
+              )
+          )
+          .slice(0, 5)
+          .map((row) => JSON.stringify(row))
+      )
       console.log('Rows before filtering:', allRows.length)
       console.log('Rows after filtering:', filteredRows.length)
       console.log('Sample filtered rows:', filteredRows.slice(0, 3))
