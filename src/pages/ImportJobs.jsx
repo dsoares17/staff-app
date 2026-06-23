@@ -226,6 +226,43 @@ function readFileAsText(file) {
   })
 }
 
+function excelSerialToDate(serial) {
+  const date = new Date((serial - 25569) * 86400 * 1000)
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+}
+
+function isExcelSerialNumber(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return false
+  return value >= 40000 && value <= 50000
+}
+
+function convertExcelSerialCell(value) {
+  if (isExcelSerialNumber(value)) {
+    return excelSerialToDate(value)
+  }
+
+  if (value instanceof Date) {
+    return value.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    })
+  }
+
+  return value
+}
+
+function postProcessSheetRows(rawRows) {
+  return rawRows.map((row) => {
+    const cells = Array.isArray(row) ? row : [row]
+    return cells.map(convertExcelSerialCell)
+  })
+}
+
 function formatPastYearsList(years) {
   if (years.length === 0) return ''
   if (years.length === 1) return String(years[0])
@@ -366,15 +403,22 @@ async function readSpreadsheetRows(file) {
     console.log('XLSX parsed, sheets:', workbook.SheetNames)
 
     const ws = workbook.Sheets[workbook.SheetNames[0]]
-    const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1 })
+    const rawRows = XLSX.utils.sheet_to_json(ws, {
+      header: 1,
+      raw: false,
+      dateNF: 'yyyy-mm-dd',
+      defval: '',
+    })
 
     console.log('Raw rows from SheetJS:', rawRows.length)
     console.log('First 3 rows:', JSON.stringify(rawRows.slice(0, 3)))
     console.log('Last 3 rows:', JSON.stringify(rawRows.slice(-3)))
 
-    return normalizeSpreadsheetRows(
-      XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
-    )
+    const processedRows = postProcessSheetRows(rawRows)
+
+    console.log('Rows 10-20 after date conversion:', JSON.stringify(processedRows.slice(10, 20)))
+
+    return normalizeSpreadsheetRows(processedRows)
   } else {
     const buffer = await file.arrayBuffer()
     console.log('File read successfully, size:', buffer.byteLength)
@@ -390,9 +434,9 @@ async function readSpreadsheetRows(file) {
   }
 
   const sheet = workbook.Sheets[firstSheetName]
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false, dateNF: 'yyyy-mm-dd' })
 
-  return normalizeSpreadsheetRows(rows)
+  return normalizeSpreadsheetRows(postProcessSheetRows(rows))
 }
 
 const FILE_IMPORT_BATCH_SIZE = 15
