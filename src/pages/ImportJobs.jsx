@@ -380,6 +380,21 @@ async function readSpreadsheetRows(file) {
   return normalizeSpreadsheetRows(rows)
 }
 
+const FILE_IMPORT_BATCH_SIZE = 15
+
+function splitRowsIntoBatches(normalizedRows, batchSize = FILE_IMPORT_BATCH_SIZE) {
+  if (normalizedRows.length === 0) return []
+
+  const [headerRow, ...dataRows] = normalizedRows
+  const batches = []
+
+  for (let index = 0; index < dataRows.length; index += batchSize) {
+    batches.push([headerRow, ...dataRows.slice(index, index + batchSize)])
+  }
+
+  return batches
+}
+
 export default function ImportJobs() {
   const navigate = useNavigate()
   const fileInputRef = useRef(null)
@@ -393,6 +408,7 @@ export default function ImportJobs() {
   const [imagePreviewUrl, setImagePreviewUrl] = useState(null)
   const [convertingImage, setConvertingImage] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
+  const [fileBatchProgress, setFileBatchProgress] = useState(null)
   const [error, setError] = useState('')
   const [pendingResults, setPendingResults] = useState(null)
   const [yearGateOpen, setYearGateOpen] = useState(false)
@@ -476,7 +492,7 @@ export default function ImportJobs() {
     return parsed
   }
 
-  async function analyzeImportedFile(text, { maxTokens = 4096 } = {}) {
+  async function analyzeImportedFile(text, { maxTokens = 4096, allowEmpty = false } = {}) {
     console.log('Filtered text representation length:', text.length)
 
     const responseText = await callAnthropic({
@@ -499,7 +515,7 @@ export default function ImportJobs() {
 
     console.log('JSON parsed, items:', parsed.length)
 
-    if (parsed.length === 0) {
+    if (!allowEmpty && parsed.length === 0) {
       throw new Error('Nenhum trabalho encontrado.')
     }
 
@@ -508,12 +524,53 @@ export default function ImportJobs() {
 
   async function runFileImportWithRows(rows, { includeAllYears, filterToCurrentYear = false }) {
     const rowsToSend = filterToCurrentYear ? filterRowsToCurrentYear(rows) : rows
-    const flattenedText = formatRowsToText(rowsToSend)
-    console.log('Text representation (first 500 chars):', flattenedText.slice(0, 500))
+    const dataRowCount = Math.max(0, rowsToSend.length - 1)
 
-    const maxTokens = includeAllYears ? 8192 : 4096
-    const parsed = await analyzeImportedFile(flattenedText, { maxTokens })
-    proceedToReview(parsed)
+    if (dataRowCount <= FILE_IMPORT_BATCH_SIZE) {
+      const flattenedText = formatRowsToText(rowsToSend)
+      console.log('Text representation (first 500 chars):', flattenedText.slice(0, 500))
+
+      const maxTokens = includeAllYears ? 8192 : 4096
+      const parsed = await analyzeImportedFile(flattenedText, { maxTokens })
+      proceedToReview(parsed)
+      return
+    }
+
+    const batches = splitRowsIntoBatches(rowsToSend)
+    const merged = []
+    let hadFailures = false
+
+    setFileBatchProgress({ current: 0, total: batches.length })
+
+    for (let index = 0; index < batches.length; index += 1) {
+      setFileBatchProgress({ current: index + 1, total: batches.length })
+
+      try {
+        const flattenedText = formatRowsToText(batches[index])
+        console.log(`Batch ${index + 1}/${batches.length} text length:`, flattenedText.length)
+
+        const parsed = await analyzeImportedFile(flattenedText, {
+          maxTokens: 4096,
+          allowEmpty: true,
+        })
+        merged.push(...parsed)
+      } catch (err) {
+        console.error(`File import batch ${index + 1} failed:`, err)
+        hadFailures = true
+      }
+    }
+
+    setFileBatchProgress(null)
+
+    if (merged.length === 0) {
+      throw new Error('Nenhum trabalho encontrado.')
+    }
+
+    if (hadFailures) {
+      window.alert('Alguns trabalhos podem não ter sido importados. Verifica a lista.')
+    }
+
+    proceedToReview(merged)
   }
 
   async function handleFileYearGateChoice(includeAllYears) {
@@ -541,6 +598,7 @@ export default function ImportJobs() {
       setAnalyzing(false)
       setPendingFileRows(null)
       setDetectedPastYears([])
+      setFileBatchProgress(null)
     }
   }
 
@@ -635,6 +693,7 @@ export default function ImportJobs() {
       )
     } finally {
       setAnalyzing(false)
+      setFileBatchProgress(null)
     }
   }
 
@@ -818,7 +877,11 @@ export default function ImportJobs() {
                     className="w-full rounded-lg py-3 text-sm font-medium text-white disabled:opacity-50"
                     style={{ backgroundColor: AI_PURPLE }}
                   >
-                    {analyzing ? 'A analisar texto…' : '✨ Analisar com IA'}
+                    {analyzing
+                      ? fileBatchProgress
+                        ? `A analisar trabalhos... (lote ${fileBatchProgress.current} de ${fileBatchProgress.total})`
+                        : 'A analisar texto…'
+                      : '✨ Analisar com IA'}
                   </button>
                 </div>
               ) : null}
