@@ -164,6 +164,9 @@ function parseJsonArrayFromAiText(text, { debug = false } = {}) {
   cleaned = cleaned.slice(firstBracket, lastBracket + 1).trim()
 
   if (debug) {
+    console.log('=== CLEANED TEXT START ===')
+    console.log(cleaned)
+    console.log('=== CLEANED TEXT END ===')
     console.log('Cleaned JSON (first 200 chars):', cleaned.slice(0, 200))
     console.log('Cleaned JSON (last 200 chars):', cleaned.slice(-200))
   }
@@ -223,7 +226,32 @@ function readFileAsText(file) {
   })
 }
 
-function formatStructuredSpreadsheetRows(rows) {
+function formatPastYearsList(years) {
+  if (years.length === 0) return ''
+  if (years.length === 1) return String(years[0])
+  if (years.length === 2) return `${years[0]} e ${years[1]}`
+  return `${years.slice(0, -1).join(', ')} e ${years[years.length - 1]}`
+}
+
+function findDateColumnIndexes(headers) {
+  const keywords = ['data', 'date', 'início', 'inicio', 'fim', 'end', 'dia']
+
+  return headers
+    .map((header, index) => {
+      const lower = String(header).toLowerCase()
+      return keywords.some((keyword) => lower.includes(keyword)) ? index : -1
+    })
+    .filter((index) => index >= 0)
+}
+
+function extractYearsFromCellValue(value) {
+  const text = formatCellValue(value)
+  const matches = text.match(/\b(20\d{2})\b/g)
+  if (!matches) return []
+  return matches.map(Number)
+}
+
+function normalizeSpreadsheetRows(rows) {
   if (!Array.isArray(rows) || rows.length === 0) {
     throw new Error('empty')
   }
@@ -239,6 +267,10 @@ function formatStructuredSpreadsheetRows(rows) {
     throw new Error('empty')
   }
 
+  return normalizedRows
+}
+
+function formatRowsToText(normalizedRows) {
   const [headerRow, ...dataRows] = normalizedRows
   const headers = headerRow.map((header, index) => header || `Coluna ${index + 1}`)
   const hasStructuredHeaders = dataRows.length > 0 && headers.some((header) => header.length > 0)
@@ -275,7 +307,53 @@ function formatStructuredSpreadsheetRows(rows) {
   return lines.join('\n')
 }
 
-async function flattenSpreadsheetToText(file) {
+function getPastYearsFromRows(normalizedRows) {
+  if (normalizedRows.length < 2) return []
+
+  const [headerRow, ...dataRows] = normalizedRows
+  const headers = headerRow.map((header, index) => header || `Coluna ${index + 1}`)
+  const dateIndexes = findDateColumnIndexes(headers)
+  const columnsToScan =
+    dateIndexes.length > 0 ? dateIndexes : headers.map((_, index) => index)
+
+  const years = new Set()
+
+  for (const row of dataRows) {
+    for (const index of columnsToScan) {
+      for (const year of extractYearsFromCellValue(row[index])) {
+        years.add(year)
+      }
+    }
+  }
+
+  return [...years].filter((year) => year !== CURRENT_YEAR).sort((a, b) => a - b)
+}
+
+function filterRowsToCurrentYear(normalizedRows) {
+  const [headerRow, ...dataRows] = normalizedRows
+  const headers = headerRow.map((header, index) => header || `Coluna ${index + 1}`)
+  const dateIndexes = findDateColumnIndexes(headers)
+  const columnsToCheck =
+    dateIndexes.length > 0 ? dateIndexes : headers.map((_, index) => index)
+
+  const filteredData = dataRows.filter((row) =>
+    columnsToCheck.some((index) =>
+      new RegExp(`\\b${CURRENT_YEAR}\\b`).test(formatCellValue(row[index]))
+    )
+  )
+
+  if (filteredData.length === 0) {
+    throw new Error('no-current-year-rows')
+  }
+
+  return [headerRow, ...filteredData]
+}
+
+function formatStructuredSpreadsheetRows(rows) {
+  return formatRowsToText(normalizeSpreadsheetRows(rows))
+}
+
+async function readSpreadsheetRows(file) {
   let workbook
 
   if (file.name.toLowerCase().endsWith('.csv')) {
@@ -299,7 +377,7 @@ async function flattenSpreadsheetToText(file) {
   const sheet = workbook.Sheets[firstSheetName]
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
 
-  return formatStructuredSpreadsheetRows(rows)
+  return normalizeSpreadsheetRows(rows)
 }
 
 export default function ImportJobs() {
@@ -318,6 +396,9 @@ export default function ImportJobs() {
   const [error, setError] = useState('')
   const [pendingResults, setPendingResults] = useState(null)
   const [yearGateOpen, setYearGateOpen] = useState(false)
+  const [fileYearGateOpen, setFileYearGateOpen] = useState(false)
+  const [pendingFileRows, setPendingFileRows] = useState(null)
+  const [detectedPastYears, setDetectedPastYears] = useState([])
 
   const otherYearJobs = useMemo(
     () => (pendingResults ? getOtherYearJobs(pendingResults) : []),
@@ -395,10 +476,12 @@ export default function ImportJobs() {
     return parsed
   }
 
-  async function analyzeImportedFile(text) {
+  async function analyzeImportedFile(text, { maxTokens = 4096 } = {}) {
+    console.log('Filtered text representation length:', text.length)
+
     const responseText = await callAnthropic({
       model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
+      max_tokens: maxTokens,
       messages: [
         {
           role: 'user',
@@ -408,6 +491,9 @@ export default function ImportJobs() {
     })
 
     console.log('AI response received, length:', responseText.length)
+    console.log('=== RAW AI RESPONSE START ===')
+    console.log(responseText)
+    console.log('=== RAW AI RESPONSE END ===')
 
     const parsed = parseJsonArrayFromAiText(responseText, { debug: true })
 
@@ -418,6 +504,44 @@ export default function ImportJobs() {
     }
 
     return parsed
+  }
+
+  async function runFileImportWithRows(rows, { includeAllYears, filterToCurrentYear = false }) {
+    const rowsToSend = filterToCurrentYear ? filterRowsToCurrentYear(rows) : rows
+    const flattenedText = formatRowsToText(rowsToSend)
+    console.log('Text representation (first 500 chars):', flattenedText.slice(0, 500))
+
+    const maxTokens = includeAllYears ? 8192 : 4096
+    const parsed = await analyzeImportedFile(flattenedText, { maxTokens })
+    proceedToReview(parsed)
+  }
+
+  async function handleFileYearGateChoice(includeAllYears) {
+    if (!pendingFileRows) return
+
+    setFileYearGateOpen(false)
+    setError('')
+    setAnalyzing(true)
+
+    try {
+      await runFileImportWithRows(pendingFileRows, {
+        includeAllYears,
+        filterToCurrentYear: !includeAllYears,
+      })
+    } catch (err) {
+      console.error('Import error:', err)
+      if (err?.message === 'no-current-year-rows') {
+        setError(`Não foram encontrados trabalhos de ${CURRENT_YEAR} no ficheiro.`)
+      } else {
+        setError(
+          'Não foi possível processar o texto. Tenta reformular ou adiciona os trabalhos manualmente.'
+        )
+      }
+    } finally {
+      setAnalyzing(false)
+      setPendingFileRows(null)
+      setDetectedPastYears([])
+    }
   }
 
   async function analyzeImportedImage(imageFile, wasHeic) {
@@ -485,18 +609,25 @@ export default function ImportJobs() {
     setAnalyzing(true)
 
     try {
-      let flattenedText
+      let rows
 
       try {
-        flattenedText = await flattenSpreadsheetToText(selectedFile)
-        console.log('Text representation (first 500 chars):', flattenedText.slice(0, 500))
+        rows = await readSpreadsheetRows(selectedFile)
       } catch {
         setError('Não foi possível ler o ficheiro. Verifica o formato e tenta novamente.')
         return
       }
 
-      const parsed = await analyzeImportedFile(flattenedText)
-      openYearGateOrProceed(parsed)
+      const pastYears = getPastYearsFromRows(rows)
+
+      if (pastYears.length > 0) {
+        setPendingFileRows(rows)
+        setDetectedPastYears(pastYears)
+        setFileYearGateOpen(true)
+        return
+      }
+
+      await runFileImportWithRows(rows, { includeAllYears: false, filterToCurrentYear: false })
     } catch (err) {
       console.error('Import error:', err)
       setError(
@@ -756,6 +887,38 @@ export default function ImportJobs() {
           {error ? <p className="text-sm text-[#FF4444]">{error}</p> : null}
         </section>
       </div>
+
+      {fileYearGateOpen && pendingFileRows ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center">
+          <div
+            className="w-full max-w-sm rounded-xl p-5"
+            style={{ backgroundColor: '#141414', border: '1px solid #222222' }}
+          >
+            <p className="text-sm text-fg">
+              Encontrámos trabalhos de {formatPastYearsList(detectedPastYears)}. Queres
+              importá-los também?
+            </p>
+
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => handleFileYearGateChoice(true)}
+                className="w-full rounded-lg py-2.5 text-sm font-medium text-white"
+                style={{ backgroundColor: AI_PURPLE }}
+              >
+                Sim, incluir tudo
+              </button>
+              <button
+                type="button"
+                onClick={() => handleFileYearGateChoice(false)}
+                className="w-full rounded-lg bg-[#222222] py-2.5 text-sm font-medium text-fg"
+              >
+                Não, só {CURRENT_YEAR}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {yearGateOpen && pendingResults ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center">
