@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 import { formatEuro, roundMoney } from '../lib/money.js'
 import { supabase } from '../lib/supabaseClient.js'
@@ -521,6 +522,7 @@ export function buildJobPayload(formState) {
 
 export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit }) {
   const { user } = useAuth()
+  const [searchParams] = useSearchParams()
   const isAddMode = !initialJob
   const [eventName, setEventName] = useState('')
   const [status, setStatus] = useState('confirmed')
@@ -564,6 +566,15 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
   const [debouncedEventName, setDebouncedEventName] = useState('')
   const [suggestedJob, setSuggestedJob] = useState(null)
   const [suggestionDismissed, setSuggestionDismissed] = useState(false)
+
+  useEffect(() => {
+    if (!isAddMode) return
+
+    const dateParam = searchParams.get('date')
+    if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+      setStartDate(dateParam)
+    }
+  }, [isAddMode, searchParams])
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedEventName(eventName.trim()), 400)

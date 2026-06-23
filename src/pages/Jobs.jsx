@@ -585,6 +585,7 @@ function ExportIcon({ loading }) {
 }
 
 function JobsCalendar({ jobs, onJobClick }) {
+  const navigate = useNavigate()
   const today = todayISO()
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const now = new Date()
@@ -724,9 +725,27 @@ function JobsCalendar({ jobs, onJobClick }) {
 
       <div className="mt-4">
         {selectedDayJobs.length === 0 ? (
-          <p className="py-4 text-center text-sm text-[#888888]">Sem trabalhos neste dia</p>
+          <div className="py-4 text-center">
+            <p className="text-sm text-[#888888]">Sem trabalhos neste dia</p>
+            <button
+              type="button"
+              onClick={() => navigate(`/jobs/new?date=${selectedDay}`)}
+              className="mt-3 text-sm font-medium text-accent underline"
+            >
+              + Adicionar trabalho
+            </button>
+          </div>
         ) : (
           <div className="space-y-3">
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => navigate(`/jobs/new?date=${selectedDay}`)}
+                className="text-sm text-accent underline"
+              >
+                + Adicionar
+              </button>
+            </div>
             {selectedDayJobs.map((job) => (
               <JobCard
                 key={job.id}
