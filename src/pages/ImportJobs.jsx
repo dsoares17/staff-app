@@ -331,16 +331,12 @@ function getPastYearsFromRows(normalizedRows) {
 
 function filterRowsToCurrentYear(normalizedRows) {
   const [headerRow, ...dataRows] = normalizedRows
-  const headers = headerRow.map((header, index) => header || `Coluna ${index + 1}`)
-  const dateIndexes = findDateColumnIndexes(headers)
-  const columnsToCheck =
-    dateIndexes.length > 0 ? dateIndexes : headers.map((_, index) => index)
+  const yearStr = String(CURRENT_YEAR)
 
-  const filteredData = dataRows.filter((row) =>
-    columnsToCheck.some((index) =>
-      new RegExp(`\\b${CURRENT_YEAR}\\b`).test(formatCellValue(row[index]))
-    )
-  )
+  const filteredData = dataRows.filter((row) => {
+    const cells = Array.isArray(row) ? row : [row]
+    return cells.some((cell) => formatCellValue(cell).includes(yearStr))
+  })
 
   if (filteredData.length === 0) {
     throw new Error('no-current-year-rows')
@@ -528,10 +524,21 @@ export default function ImportJobs() {
   }
 
   async function runFileImportWithRows(rows, { includeAllYears, filterToCurrentYear = false }) {
+    const allRows = rows
     const rowsToSend = filterToCurrentYear ? filterRowsToCurrentYear(rows) : rows
+    const filteredRows = rowsToSend
+
+    if (filterToCurrentYear) {
+      console.log('Rows before filtering:', allRows.length)
+      console.log('Rows after filtering:', filteredRows.length)
+      console.log('Sample filtered rows:', filteredRows.slice(0, 3))
+    }
+
     const dataRowCount = Math.max(0, rowsToSend.length - 1)
 
     console.log('Total rows after filtering:', dataRowCount)
+    console.log('Total rows to process:', filteredRows.length)
+    console.log('Number of batches:', Math.ceil(filteredRows.length / FILE_IMPORT_BATCH_SIZE))
 
     if (dataRowCount <= FILE_IMPORT_BATCH_SIZE) {
       const flattenedText = formatRowsToText(rowsToSend)
