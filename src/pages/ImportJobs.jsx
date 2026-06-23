@@ -147,19 +147,37 @@ async function convertHeicToJpeg(file) {
   })
 }
 
-function parseJsonArrayFromAiText(text) {
-  const trimmed = String(text ?? '')
-    .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/i, '')
+function parseJsonArrayFromAiText(text, { debug = false } = {}) {
+  let cleaned = String(text ?? '')
+    .replace(/```json\s*/gi, '')
+    .replace(/```\s*/g, '')
+    .replace(/`/g, '')
     .trim()
 
-  const arrayMatch = trimmed.match(/(\[[\s\S]*\])/)
-  if (!arrayMatch) throw new Error('Resposta inválida da IA.')
+  const firstBracket = cleaned.indexOf('[')
+  const lastBracket = cleaned.lastIndexOf(']')
 
-  const parsed = JSON.parse(arrayMatch[1])
-  if (!Array.isArray(parsed)) throw new Error('Resposta inválida da IA.')
-  return parsed
+  if (firstBracket === -1 || lastBracket === -1 || lastBracket < firstBracket) {
+    throw new Error('Resposta inválida da IA.')
+  }
+
+  cleaned = cleaned.slice(firstBracket, lastBracket + 1).trim()
+
+  if (debug) {
+    console.log('Cleaned JSON (first 200 chars):', cleaned.slice(0, 200))
+    console.log('Cleaned JSON (last 200 chars):', cleaned.slice(-200))
+  }
+
+  try {
+    const parsed = JSON.parse(cleaned)
+    if (!Array.isArray(parsed)) throw new Error('Resposta inválida da IA.')
+    return parsed
+  } catch (err) {
+    if (debug) {
+      console.error('JSON.parse failed. Full cleaned string:', cleaned)
+    }
+    throw err
+  }
 }
 
 function getDateYear(dateStr) {
@@ -391,7 +409,7 @@ export default function ImportJobs() {
 
     console.log('AI response received, length:', responseText.length)
 
-    const parsed = parseJsonArrayFromAiText(responseText)
+    const parsed = parseJsonArrayFromAiText(responseText, { debug: true })
 
     console.log('JSON parsed, items:', parsed.length)
 
