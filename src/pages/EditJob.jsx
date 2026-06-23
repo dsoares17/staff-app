@@ -75,13 +75,15 @@ export default function EditJob() {
     }
   }, [id])
 
-  async function handleSubmit({ jobData, expectedAmount }) {
+  async function handleSubmit(payload) {
     if (!user?.id || !id) return
 
     setError('')
     setBusy(true)
 
     try {
+      const { jobData, expectedAmount } = payload
+
       const { error: jobError } = await supabase
         .from('staff_app_jobs')
         .update(jobData)
@@ -95,6 +97,28 @@ export default function EditJob() {
         .eq('job_id', id)
 
       if (paymentError) throw paymentError
+
+      const { error: deleteSchedulesError } = await supabase
+        .from('staff_app_job_schedules')
+        .delete()
+        .eq('job_id', id)
+
+      if (deleteSchedulesError) throw deleteSchedulesError
+
+      if (payload.dailySchedules?.length) {
+        const { error: insertSchedulesError } = await supabase
+          .from('staff_app_job_schedules')
+          .insert(
+            payload.dailySchedules.map((row) => ({
+              job_id: id,
+              schedule_date: row.scheduleDate,
+              start_time: row.startTime || null,
+              end_time: row.endTime || null,
+            }))
+          )
+
+        if (insertSchedulesError) throw insertSchedulesError
+      }
 
       navigate(`/jobs/${id}`, { replace: true })
     } catch (err) {

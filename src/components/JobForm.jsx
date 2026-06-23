@@ -357,6 +357,76 @@ function createRecurringDateEntry(startDate = '', endDate = '') {
   }
 }
 
+const SCHEDULE_WEEK_DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+const SCHEDULE_MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+function isMultiDayEvent(startDate, endDate) {
+  return Boolean(startDate && endDate && endDate !== startDate)
+}
+
+function enumerateDateRange(startDate, endDate) {
+  const dates = []
+  const start = new Date(`${startDate}T00:00:00`)
+  const end = new Date(`${endDate || startDate}T00:00:00`)
+  const cursor = new Date(start)
+
+  while (cursor <= end) {
+    const y = cursor.getFullYear()
+    const m = String(cursor.getMonth() + 1).padStart(2, '0')
+    const d = String(cursor.getDate()).padStart(2, '0')
+    dates.push(`${y}-${m}-${d}`)
+    cursor.setDate(cursor.getDate() + 1)
+  }
+
+  return dates
+}
+
+function formatScheduleDayLabel(dateISO) {
+  const date = new Date(`${dateISO}T00:00:00`)
+  return `${SCHEDULE_WEEK_DAYS[date.getDay()]}, ${date.getDate()} ${SCHEDULE_MONTHS[date.getMonth()]}`
+}
+
+function buildDailyScheduleRows(startDate, endDate, existingRows = []) {
+  const existingByDate = Object.fromEntries(
+    existingRows.map((row) => [row.scheduleDate, row])
+  )
+
+  return enumerateDateRange(startDate, endDate).map((scheduleDate) => ({
+    scheduleDate,
+    startTime: existingByDate[scheduleDate]?.startTime ?? '',
+    endTime: existingByDate[scheduleDate]?.endTime ?? '',
+  }))
+}
+
+async function insertDailySchedulesForNewJob(userId, jobData, dailySchedules) {
+  const since = new Date(Date.now() - 15000).toISOString()
+
+  const { data: job, error: findError } = await supabase
+    .from('staff_app_jobs')
+    .select('id')
+    .eq('staff_app_user_id', userId)
+    .eq('event_name', jobData.event_name)
+    .eq('start_date', jobData.start_date)
+    .eq('end_date', jobData.end_date ?? null)
+    .is('start_time', null)
+    .is('end_time', null)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (findError || !job?.id) return
+
+  await supabase.from('staff_app_job_schedules').insert(
+    dailySchedules.map((row) => ({
+      job_id: job.id,
+      schedule_date: row.scheduleDate,
+      start_time: row.startTime || null,
+      end_time: row.endTime || null,
+    }))
+  )
+}
+
 export function parseNumber(value) {
   if (value === '' || value == null) return null
   const parsed = Number(value)
@@ -574,6 +644,8 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
   const [recurringDates, setRecurringDates] = useState(() => [createRecurringDateEntry()])
   const [recurringError, setRecurringError] = useState('')
   const [timeExpanded, setTimeExpanded] = useState(false)
+  const [scheduleMode, setScheduleMode] = useState('single')
+  const [dailySchedules, setDailySchedules] = useState([])
   const [startTime, setStartTime] = useState('')
   const [endTime, setEndTime] = useState('')
   const [notes, setNotes] = useState('')
@@ -642,6 +714,38 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
 
   function addRecurringDate() {
     setRecurringDates((current) => [...current, createRecurringDateEntry()])
+  }
+
+  const showMultiDaySchedule = !isRecurring && isMultiDayEvent(startDate, endDate)
+
+  useEffect(() => {
+    if (isRecurring || scheduleMode !== 'perDay') return undefined
+
+    if (!isMultiDayEvent(startDate, endDate)) {
+      setScheduleMode('single')
+      return undefined
+    }
+
+    setDailySchedules((current) => buildDailyScheduleRows(startDate, endDate, current))
+    return undefined
+  }, [startDate, endDate, scheduleMode, isRecurring])
+
+  function updateDailySchedule(scheduleDate, field, value) {
+    setDailySchedules((current) =>
+      current.map((row) =>
+        row.scheduleDate === scheduleDate ? { ...row, [field]: value } : row
+      )
+    )
+  }
+
+  function handleScheduleModeChange(mode) {
+    setScheduleMode(mode)
+
+    if (mode === 'perDay' && isMultiDayEvent(startDate, endDate)) {
+      setDailySchedules((current) => buildDailyScheduleRows(startDate, endDate, current))
+      setStartTime('')
+      setEndTime('')
+    }
   }
 
   useEffect(() => {
@@ -755,7 +859,35 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
       setOrganiserInput(values.organiserName)
     }
 
+    async function loadSchedules() {
+      const { data } = await supabase
+        .from('staff_app_job_schedules')
+        .select('schedule_date, start_time, end_time')
+        .eq('job_id', initialJob.id)
+        .order('schedule_date', { ascending: true })
+
+      if (!active) return
+
+      if (data?.length) {
+        setScheduleMode('perDay')
+        setTimeExpanded(true)
+        setDailySchedules(
+          data.map((row) => ({
+            scheduleDate: row.schedule_date,
+            startTime: formatTime(row.start_time),
+            endTime: formatTime(row.end_time),
+          }))
+        )
+        setStartTime('')
+        setEndTime('')
+      } else {
+        setScheduleMode('single')
+        setDailySchedules([])
+      }
+    }
+
     loadOrganiser()
+    loadSchedules()
 
     return () => {
       active = false
@@ -992,6 +1124,9 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
       return
     }
 
+    const usePerDaySchedule =
+      !isRecurring && scheduleMode === 'perDay' && isMultiDayEvent(startDate, endDate)
+
     const formState = {
       eventName,
       status,
@@ -1001,8 +1136,8 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
       location,
       startDate,
       endDate,
-      startTime,
-      endTime,
+      startTime: usePerDaySchedule ? '' : startTime,
+      endTime: usePerDaySchedule ? '' : endTime,
       notes,
       paymentMode,
       workDays,
@@ -1039,7 +1174,7 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
       const { jobData, expectedAmount } = buildJobPayload(formState)
       const { start_date: _start, end_date: _end, ...sharedJobData } = jobData
 
-      onSubmit({
+      await onSubmit({
         recurring: true,
         dateEntries: validEntries,
         jobData: sharedJobData,
@@ -1049,7 +1184,20 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
     }
 
     const payload = buildJobPayload(formState)
-    onSubmit(payload)
+
+    if (usePerDaySchedule) {
+      payload.dailySchedules = dailySchedules.map((row) => ({
+        scheduleDate: row.scheduleDate,
+        startTime: row.startTime || null,
+        endTime: row.endTime || null,
+      }))
+    }
+
+    await onSubmit(payload)
+
+    if (isAddMode && payload.dailySchedules?.length && user?.id) {
+      await insertDailySchedulesForNewJob(user.id, payload.jobData, payload.dailySchedules)
+    }
   }
 
   return (
@@ -1242,44 +1390,93 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
           </div>
         ) : null}
 
-        <button
-          type="button"
-          onClick={() => {
-            if (timeExpanded) {
-              setStartTime('')
-              setEndTime('')
-            }
-            setTimeExpanded((open) => !open)
-          }}
-          className="text-sm text-accent"
-        >
-          {timeExpanded ? '− Remover horário' : '+ Adicionar horário'}
-        </button>
+        {!isRecurring ? (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                if (timeExpanded) {
+                  setStartTime('')
+                  setEndTime('')
+                  setScheduleMode('single')
+                  setDailySchedules([])
+                }
+                setTimeExpanded((open) => !open)
+              }}
+              className="text-sm text-accent"
+            >
+              {timeExpanded ? '− Remover horário' : '+ Adicionar horário'}
+            </button>
 
-        {timeExpanded ? (
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="mb-1.5 block text-sm text-muted">Hora de início</span>
-              <input
-                className={fieldClass}
-                style={fieldStyle}
-                type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-              />
-            </label>
+            {timeExpanded ? (
+              <div className="space-y-3">
+                {showMultiDaySchedule ? (
+                  <PillToggle
+                    options={[
+                      { value: 'single', label: 'Horário único' },
+                      { value: 'perDay', label: 'Horário por dia' },
+                    ]}
+                    value={scheduleMode}
+                    onChange={handleScheduleModeChange}
+                  />
+                ) : null}
 
-            <label className="block">
-              <span className="mb-1.5 block text-sm text-muted">Hora de fim</span>
-              <input
-                className={fieldClass}
-                style={fieldStyle}
-                type="time"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-              />
-            </label>
-          </div>
+                {scheduleMode === 'perDay' && showMultiDaySchedule ? (
+                  <div className="space-y-3">
+                    {dailySchedules.map((row) => (
+                      <div key={row.scheduleDate} className="flex items-center gap-2">
+                        <span className="w-[5.5rem] shrink-0 text-xs text-[#888888]">
+                          {formatScheduleDayLabel(row.scheduleDate)}
+                        </span>
+                        <input
+                          className={`${fieldClass} min-w-0 flex-1 px-2 py-2`}
+                          style={fieldStyle}
+                          type="time"
+                          value={row.startTime}
+                          onChange={(e) =>
+                            updateDailySchedule(row.scheduleDate, 'startTime', e.target.value)
+                          }
+                        />
+                        <input
+                          className={`${fieldClass} min-w-0 flex-1 px-2 py-2`}
+                          style={fieldStyle}
+                          type="time"
+                          value={row.endTime}
+                          onChange={(e) =>
+                            updateDailySchedule(row.scheduleDate, 'endTime', e.target.value)
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block">
+                      <span className="mb-1.5 block text-sm text-muted">Hora de início</span>
+                      <input
+                        className={fieldClass}
+                        style={fieldStyle}
+                        type="time"
+                        value={startTime}
+                        onChange={(e) => setStartTime(e.target.value)}
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-1.5 block text-sm text-muted">Hora de fim</span>
+                      <input
+                        className={fieldClass}
+                        style={fieldStyle}
+                        type="time"
+                        value={endTime}
+                        onChange={(e) => setEndTime(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </>
         ) : null}
 
         <section className="space-y-3">

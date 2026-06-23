@@ -5,6 +5,7 @@ import { formatEuro, formatEuroWhole, roundMoney } from '../lib/money.js'
 import { supabase } from '../lib/supabaseClient.js'
 
 const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+const SCHEDULE_WEEK_DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
 const JOB_STATUS = {
   confirmed: { label: 'Confirmado', bg: '#00FF87', text: '#000000' },
@@ -85,6 +86,24 @@ function formatDate(value) {
   const date = new Date(value.includes('T') ? value : `${value}T00:00:00`)
   if (Number.isNaN(date.getTime())) return null
   return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`
+}
+
+function formatTimeValue(value) {
+  if (!value) return null
+  return String(value).slice(0, 5)
+}
+
+function formatTimeRange(startTime, endTime) {
+  const start = formatTimeValue(startTime)
+  const end = formatTimeValue(endTime)
+
+  if (start && end) return `${start} — ${end}`
+  return start || end
+}
+
+function formatScheduleDayLabel(dateISO) {
+  const date = new Date(`${dateISO}T00:00:00`)
+  return `${SCHEDULE_WEEK_DAYS[date.getDay()]}, ${date.getDate()} ${MONTHS[date.getMonth()]}`
 }
 
 function calcHourlyExtraTotal(job) {
@@ -237,6 +256,7 @@ export default function JobDetail() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [job, setJob] = useState(null)
+  const [schedules, setSchedules] = useState([])
   const [payment, setPayment] = useState(null)
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading] = useState(true)
@@ -284,22 +304,30 @@ export default function JobDetail() {
 
     if (jobError || !jobData) {
       setJob(null)
+      setSchedules([])
       setPayment(null)
       setNotFound(true)
       setLoading(false)
       return
     }
 
-    const [{ data: paymentData }, { data: expensesData }] = await Promise.all([
+    const [{ data: paymentData }, { data: expensesData }, { data: schedulesData }] =
+      await Promise.all([
       supabase.from('staff_app_payments').select('*').eq('job_id', id).maybeSingle(),
       supabase
         .from('staff_app_expenses')
         .select('*')
         .eq('job_id', id)
         .order('expense_date', { ascending: false }),
+      supabase
+        .from('staff_app_job_schedules')
+        .select('schedule_date, start_time, end_time')
+        .eq('job_id', id)
+        .order('schedule_date', { ascending: true }),
     ])
 
     setJob(jobData)
+    setSchedules(schedulesData ?? [])
     setPayment(paymentData ?? null)
     setExpenses(expensesData ?? [])
     setLoading(false)
@@ -617,6 +645,7 @@ export default function JobDetail() {
 
   const jobStatus = JOB_STATUS[job.status] ?? JOB_STATUS.pending
   const dateRange = formatDateRange(job.start_date, job.end_date)
+  const singleTimeLabel = formatTimeRange(job.start_time, job.end_time)
   const receivableTotal = calcReceivableTotal(job)
   const payBreakdownLines = buildPayBreakdownLines(job)
   const metaParts = [job.organiser_name, job.role].filter(Boolean)
@@ -697,6 +726,39 @@ export default function JobDetail() {
             }`}
           >
             {dateRange}
+          </p>
+        ) : null}
+        {schedules.length > 0 ? (
+          <div
+            className={`space-y-1${
+              metaParts.length > 0 || job.location || dateRange ? ' mt-2' : ''
+            }`}
+          >
+            {schedules.map((row) => {
+              const timeLabel = formatTimeRange(row.start_time, row.end_time)
+
+              return (
+                <p key={row.schedule_date} className="text-sm">
+                  <span className="text-[#888888]">
+                    {formatScheduleDayLabel(row.schedule_date)}
+                  </span>
+                  {timeLabel ? (
+                    <>
+                      <span className="text-[#888888]">{'  '}</span>
+                      <span className="text-fg">{timeLabel}</span>
+                    </>
+                  ) : null}
+                </p>
+              )
+            })}
+          </div>
+        ) : singleTimeLabel ? (
+          <p
+            className={`text-sm text-fg${
+              metaParts.length > 0 || job.location || dateRange ? ' mt-1' : ''
+            }`}
+          >
+            {singleTimeLabel}
           </p>
         ) : null}
       </div>
