@@ -262,11 +262,15 @@ async function flattenSpreadsheetToText(file) {
 
   if (file.name.toLowerCase().endsWith('.csv')) {
     const csvText = await readFileAsText(file)
+    console.log('File read successfully, size:', csvText.length)
     workbook = XLSX.read(csvText, { type: 'string' })
   } else {
     const buffer = await file.arrayBuffer()
+    console.log('File read successfully, size:', buffer.byteLength)
     workbook = XLSX.read(buffer, { type: 'array' })
   }
+
+  console.log('XLSX parsed, sheets:', workbook.SheetNames)
 
   const firstSheetName = workbook.SheetNames[0]
 
@@ -385,7 +389,11 @@ export default function ImportJobs() {
       ],
     })
 
+    console.log('AI response received, length:', responseText.length)
+
     const parsed = parseJsonArrayFromAiText(responseText)
+
+    console.log('JSON parsed, items:', parsed.length)
 
     if (parsed.length === 0) {
       throw new Error('Nenhum trabalho encontrado.')
@@ -463,6 +471,7 @@ export default function ImportJobs() {
 
       try {
         flattenedText = await flattenSpreadsheetToText(selectedFile)
+        console.log('Text representation (first 500 chars):', flattenedText.slice(0, 500))
       } catch {
         setError('Não foi possível ler o ficheiro. Verifica o formato e tenta novamente.')
         return
@@ -470,7 +479,8 @@ export default function ImportJobs() {
 
       const parsed = await analyzeImportedFile(flattenedText)
       openYearGateOrProceed(parsed)
-    } catch {
+    } catch (err) {
+      console.error('Import error:', err)
       setError(
         'Não foi possível processar o texto. Tenta reformular ou adiciona os trabalhos manualmente.'
       )
