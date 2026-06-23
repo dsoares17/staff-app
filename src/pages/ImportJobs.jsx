@@ -492,7 +492,7 @@ export default function ImportJobs() {
     return parsed
   }
 
-  async function analyzeImportedFile(text, { maxTokens = 4096, allowEmpty = false } = {}) {
+  async function fetchFileImportAiResponse(text, maxTokens) {
     console.log('Filtered text representation length:', text.length)
 
     const responseText = await callAnthropic({
@@ -511,6 +511,11 @@ export default function ImportJobs() {
     console.log(responseText)
     console.log('=== RAW AI RESPONSE END ===')
 
+    return responseText
+  }
+
+  async function analyzeImportedFile(text, { maxTokens = 4096, allowEmpty = false } = {}) {
+    const responseText = await fetchFileImportAiResponse(text, maxTokens)
     const parsed = parseJsonArrayFromAiText(responseText, { debug: true })
 
     console.log('JSON parsed, items:', parsed.length)
@@ -526,6 +531,8 @@ export default function ImportJobs() {
     const rowsToSend = filterToCurrentYear ? filterRowsToCurrentYear(rows) : rows
     const dataRowCount = Math.max(0, rowsToSend.length - 1)
 
+    console.log('Total rows after filtering:', dataRowCount)
+
     if (dataRowCount <= FILE_IMPORT_BATCH_SIZE) {
       const flattenedText = formatRowsToText(rowsToSend)
       console.log('Text representation (first 500 chars):', flattenedText.slice(0, 500))
@@ -537,6 +544,13 @@ export default function ImportJobs() {
     }
 
     const batches = splitRowsIntoBatches(rowsToSend)
+    console.log(
+      'Batches:',
+      batches.length,
+      'sizes:',
+      batches.map((batch) => batch.length)
+    )
+
     const merged = []
     let hadFailures = false
 
@@ -546,14 +560,20 @@ export default function ImportJobs() {
       setFileBatchProgress({ current: index + 1, total: batches.length })
 
       try {
-        const flattenedText = formatRowsToText(batches[index])
-        console.log(`Batch ${index + 1}/${batches.length} text length:`, flattenedText.length)
+        const batchText = formatRowsToText(batches[index])
 
-        const parsed = await analyzeImportedFile(flattenedText, {
-          maxTokens: 4096,
-          allowEmpty: true,
-        })
-        merged.push(...parsed)
+        console.log('Calling AI for batch', index + 1, 'of', batches.length)
+        console.log('Batch text length:', batchText.length)
+
+        const response = await fetchFileImportAiResponse(batchText, 4096)
+
+        console.log('Batch AI response length:', response.length)
+
+        const parsedJobs = parseJsonArrayFromAiText(response, { debug: true })
+
+        console.log('Batch parsed jobs:', parsedJobs.length)
+
+        merged.push(...parsedJobs)
       } catch (err) {
         console.error(`File import batch ${index + 1} failed:`, err)
         hadFailures = true
@@ -561,6 +581,8 @@ export default function ImportJobs() {
     }
 
     setFileBatchProgress(null)
+
+    console.log('Total merged jobs:', merged.length)
 
     if (merged.length === 0) {
       throw new Error('Nenhum trabalho encontrado.')
