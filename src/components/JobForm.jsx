@@ -326,6 +326,37 @@ function CollapsibleSection({ title, expanded, onToggle, children }) {
   )
 }
 
+function ToggleSwitch({ checked, onChange, label }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-sm text-fg">{label}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+          checked ? 'bg-[#FFC700]' : 'bg-[#333333]'
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+            checked ? 'translate-x-6' : 'translate-x-1'
+          }`}
+        />
+      </button>
+    </div>
+  )
+}
+
+function createRecurringDateEntry(startDate = '', endDate = '') {
+  return {
+    id: crypto.randomUUID(),
+    startDate,
+    endDate,
+  }
+}
+
 export function parseNumber(value) {
   if (value === '' || value == null) return null
   const parsed = Number(value)
@@ -539,6 +570,9 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
   const [location, setLocation] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [isRecurring, setIsRecurring] = useState(false)
+  const [recurringDates, setRecurringDates] = useState(() => [createRecurringDateEntry()])
+  const [recurringError, setRecurringError] = useState('')
   const [timeExpanded, setTimeExpanded] = useState(false)
   const [startTime, setStartTime] = useState('')
   const [endTime, setEndTime] = useState('')
@@ -573,8 +607,42 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
     const dateParam = searchParams.get('date')
     if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
       setStartDate(dateParam)
+      if (isRecurring) {
+        setRecurringDates((current) => {
+          if (current.length === 0) return [createRecurringDateEntry(dateParam)]
+          const [first, ...rest] = current
+          return [{ ...first, startDate: dateParam }, ...rest]
+        })
+      }
     }
-  }, [isAddMode, searchParams])
+  }, [isAddMode, isRecurring, searchParams])
+
+  function handleRecurringToggle(enabled) {
+    setIsRecurring(enabled)
+    setRecurringError('')
+
+    if (enabled) {
+      setRecurringDates([createRecurringDateEntry(startDate, endDate)])
+    }
+  }
+
+  function updateRecurringDate(id, field, value) {
+    setRecurringDates((current) =>
+      current.map((entry) => (entry.id === id ? { ...entry, [field]: value } : entry))
+    )
+    setRecurringError('')
+  }
+
+  function removeRecurringDate(id) {
+    setRecurringDates((current) => {
+      if (current.length <= 1) return current
+      return current.filter((entry) => entry.id !== id)
+    })
+  }
+
+  function addRecurringDate() {
+    setRecurringDates((current) => [...current, createRecurringDateEntry()])
+  }
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedEventName(eventName.trim()), 400)
@@ -910,6 +978,7 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
   async function handleSubmit(e) {
     e.preventDefault()
     setOrganiserSubmitError('')
+    setRecurringError('')
 
     let organiserId = null
     let organiserName = null
@@ -923,7 +992,7 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
       return
     }
 
-    const payload = buildJobPayload({
+    const formState = {
       eventName,
       status,
       organiserId,
@@ -952,8 +1021,34 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
       transportTravelDays,
       transportTravelRate,
       accommodationType,
-    })
+    }
 
+    if (isAddMode && isRecurring) {
+      const validEntries = recurringDates
+        .filter((entry) => entry.startDate)
+        .map((entry) => ({
+          startDate: entry.startDate,
+          endDate: entry.endDate || null,
+        }))
+
+      if (validEntries.length === 0) {
+        setRecurringError('Adiciona pelo menos uma data de início.')
+        return
+      }
+
+      const { jobData, expectedAmount } = buildJobPayload(formState)
+      const { start_date: _start, end_date: _end, ...sharedJobData } = jobData
+
+      onSubmit({
+        recurring: true,
+        dateEntries: validEntries,
+        jobData: sharedJobData,
+        expectedAmount,
+      })
+      return
+    }
+
+    const payload = buildJobPayload(formState)
     onSubmit(payload)
   }
 
@@ -1050,31 +1145,102 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
           />
         </label>
 
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block">
-            <span className="mb-1.5 block text-sm text-muted">Data de início</span>
-            <input
-              className={fieldClass}
-              style={fieldStyle}
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              required
-            />
-          </label>
+        {(!isAddMode || !isRecurring) ? (
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="mb-1.5 block text-sm text-muted">Data de início</span>
+              <input
+                className={fieldClass}
+                style={fieldStyle}
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                required={!isRecurring}
+              />
+            </label>
 
-          <label className="block">
-            <span className="mb-1.5 block text-sm text-muted">Data de fim</span>
-            <input
-              className={fieldClass}
-              style={fieldStyle}
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              min={startDate || undefined}
-            />
-          </label>
-        </div>
+            <label className="block">
+              <span className="mb-1.5 block text-sm text-muted">Data de fim</span>
+              <input
+                className={fieldClass}
+                style={fieldStyle}
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                min={startDate || undefined}
+              />
+            </label>
+          </div>
+        ) : null}
+
+        {isAddMode ? (
+          <ToggleSwitch
+            checked={isRecurring}
+            onChange={handleRecurringToggle}
+            label="Evento recorrente"
+          />
+        ) : null}
+
+        {isAddMode && isRecurring ? (
+          <div>
+            <span className="mb-2 block text-sm text-muted">Datas</span>
+            <div className="space-y-3">
+              {recurringDates.map((entry) => (
+                <div key={entry.id} className="flex items-end gap-2">
+                  <div className="grid min-w-0 flex-1 grid-cols-2 gap-2">
+                    <label className="block">
+                      <span className="mb-1 block text-xs text-[#888888]">Data de início</span>
+                      <input
+                        className={fieldClass}
+                        style={fieldStyle}
+                        type="date"
+                        value={entry.startDate}
+                        onChange={(e) =>
+                          updateRecurringDate(entry.id, 'startDate', e.target.value)
+                        }
+                        required
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-1 block text-xs text-[#888888]">Data de fim</span>
+                      <input
+                        className={fieldClass}
+                        style={fieldStyle}
+                        type="date"
+                        value={entry.endDate}
+                        onChange={(e) => updateRecurringDate(entry.id, 'endDate', e.target.value)}
+                        min={entry.startDate || undefined}
+                      />
+                    </label>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => removeRecurringDate(entry.id)}
+                    disabled={recurringDates.length <= 1}
+                    aria-label="Remover data"
+                    className="mb-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-lg text-[#888888] disabled:opacity-30"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={addRecurringDate}
+              className="mt-3 text-sm text-accent"
+            >
+              + Adicionar data
+            </button>
+
+            {recurringError ? (
+              <p className="mt-2 text-xs text-danger">{recurringError}</p>
+            ) : null}
+          </div>
+        ) : null}
 
         <button
           type="button"

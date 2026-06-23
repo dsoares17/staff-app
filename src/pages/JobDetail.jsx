@@ -679,6 +679,9 @@ export default function JobDetail() {
 
       {/* Zone 1 — Header info */}
       <div className="border-b border-[#1A1A1A] px-4 pb-4 pt-2">
+        {job.series_id ? (
+          <p className="mb-1 text-xs text-[#888888]">🔁 Parte de uma série</p>
+        ) : null}
         {metaParts.length > 0 ? (
           <p className="text-sm text-[#888888]">{metaParts.join(' · ')}</p>
         ) : null}
