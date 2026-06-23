@@ -356,6 +356,18 @@ async function readSpreadsheetRows(file) {
     const csvText = await readFileAsText(file)
     console.log('File read successfully, size:', csvText.length)
     workbook = XLSX.read(csvText, { type: 'string' })
+    console.log('XLSX parsed, sheets:', workbook.SheetNames)
+
+    const ws = workbook.Sheets[workbook.SheetNames[0]]
+    const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1 })
+
+    console.log('Raw rows from SheetJS:', rawRows.length)
+    console.log('First 3 rows:', JSON.stringify(rawRows.slice(0, 3)))
+    console.log('Last 3 rows:', JSON.stringify(rawRows.slice(-3)))
+
+    return normalizeSpreadsheetRows(
+      XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+    )
   } else {
     const buffer = await file.arrayBuffer()
     console.log('File read successfully, size:', buffer.byteLength)
