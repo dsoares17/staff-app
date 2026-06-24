@@ -22,6 +22,16 @@ const MONTH_NAMES = [
 ]
 
 const WEEK_DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+const WEEK_DAY_ABBREV = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB']
+
+const LIST_SECTIONS = [
+  { id: 'hoje', label: 'Hoje', highlight: true },
+  { id: 'estaSemana', label: 'Esta semana' },
+  { id: 'proximaSemana', label: 'Próxima semana' },
+  { id: 'esteMes', label: 'Este mês' },
+  { id: 'maisTarde', label: 'Mais tarde' },
+  { id: 'concluidos', label: 'Concluídos', collapsible: true },
+]
 
 const JOB_STATUS = {
   pending: { label: 'Pendente', bg: '#FFB800', text: '#000000' },
@@ -433,8 +443,114 @@ function buildMonthGrid(year, month) {
   return cells
 }
 
+function addDaysToDate(isoDate, days) {
+  const date = new Date(`${isoDate}T00:00:00`)
+  date.setDate(date.getDate() + days)
+  return toISODate(date)
+}
+
+function isJobInConcluidos(job, today) {
+  if (job.status === 'completed' || job.status === 'cancelled') return true
+
+  const endDate = getJobEndDate(job)
+  if (!endDate) {
+    return job.start_date ? job.start_date < today : false
+  }
+
+  return endDate < today
+}
+
+function isJobToday(job, today) {
+  if (!job.start_date) return false
+  const end = job.end_date || job.start_date
+  return job.start_date <= today && today <= end
+}
+
+function getJobListSection(job, today) {
+  if (isJobInConcluidos(job, today)) return 'concluidos'
+  if (isJobToday(job, today)) return 'hoje'
+
+  const start = job.start_date
+  if (!start) return 'maisTarde'
+
+  const weekEnd = addDaysToDate(today, 7)
+  const nextWeekEnd = addDaysToDate(today, 14)
+
+  if (start > today && start <= weekEnd) return 'estaSemana'
+  if (start > weekEnd && start <= nextWeekEnd) return 'proximaSemana'
+
+  const todayDate = new Date(`${today}T00:00:00`)
+  const startDate = new Date(`${start}T00:00:00`)
+
+  if (
+    startDate.getFullYear() === todayDate.getFullYear() &&
+    startDate.getMonth() === todayDate.getMonth() &&
+    start > nextWeekEnd
+  ) {
+    return 'esteMes'
+  }
+
+  return 'maisTarde'
+}
+
+function groupJobsForList(jobs, today) {
+  const groups = {
+    hoje: [],
+    estaSemana: [],
+    proximaSemana: [],
+    esteMes: [],
+    maisTarde: [],
+    concluidos: [],
+  }
+
+  for (const job of jobs) {
+    groups[getJobListSection(job, today)].push(job)
+  }
+
+  for (const key of Object.keys(groups)) {
+    groups[key].sort((a, b) => {
+      const aDate = a.start_date || ''
+      const bDate = b.start_date || ''
+      const dateCmp = aDate.localeCompare(bDate)
+      if (dateCmp !== 0) return dateCmp
+
+      const aTime = a.start_time ? String(a.start_time).slice(0, 5) : '99:99'
+      const bTime = b.start_time ? String(b.start_time).slice(0, 5) : '99:99'
+      return aTime.localeCompare(bTime)
+    })
+  }
+
+  return groups
+}
+
+function getWeekdayAbbrev(dateISO) {
+  if (!dateISO) return '—'
+  const date = new Date(`${dateISO}T00:00:00`)
+  return WEEK_DAY_ABBREV[date.getDay()]
+}
+
+function applyPaymentPatchToJobs(jobs, paymentId, patch) {
+  return jobs.map((job) => {
+    const payment = getJobPayment(job)
+    if (!payment?.id || payment.id !== paymentId) return job
+
+    const updatedPayment = { ...payment, ...patch }
+
+    if (Array.isArray(job.staff_app_payments)) {
+      return {
+        ...job,
+        staff_app_payments: job.staff_app_payments.map((p) =>
+          p.id === paymentId ? updatedPayment : p
+        ),
+      }
+    }
+
+    return { ...job, staff_app_payments: updatedPayment }
+  })
+}
+
 function SkeletonCard() {
-  return <div className="h-[120px] animate-pulse rounded-xl bg-surface" />
+  return <div className="mx-4 mb-2 h-14 animate-pulse rounded-xl bg-surface" />
 }
 
 function StatusBadge({ status }) {
@@ -503,6 +619,284 @@ function JobCard({ job, onClick, timeLabel }) {
         <p className="mt-3 text-right text-sm font-semibold text-accent">{totalLabel}</p>
       ) : null}
     </button>
+  )
+}
+
+function ChevronDownIcon({ expanded }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`h-4 w-4 shrink-0 text-[#444444] transition-transform ${
+        expanded ? 'rotate-180' : ''
+      }`}
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
+}
+
+function ListJobCard({ job, isTodaySection, onNavigate, onPaymentUpdated }) {
+  const [expanded, setExpanded] = useState(false)
+  const [updatingPayment, setUpdatingPayment] = useState(false)
+
+  const today = todayISO()
+  const startDate = job.start_date
+  const dayNumber = startDate ? new Date(`${startDate}T00:00:00`).getDate() : '—'
+  const weekdayAbbrev = getWeekdayAbbrev(startDate)
+  const highlightDateBlock = isTodaySection
+  const total = getJobTotal(job)
+  const totalLabel = total != null ? formatEuro(total) : null
+  const payment = getJobPayment(job)
+  const timeLabel = formatTimeRange(job.start_time, job.end_time)
+  const compactTimeLabel = job.start_time ? timeLabel : null
+  const dateRange = formatDateRange(job.start_date, job.end_date)
+  const statusDotColor = STATUS_DOT_COLORS[job.status] ?? STATUS_DOT_COLORS.pending
+  const isCancelled = job.status === 'cancelled'
+
+  async function handlePaymentUpdate(patch) {
+    if (!payment?.id || updatingPayment) return
+
+    setUpdatingPayment(true)
+    const { error } = await supabase
+      .from('staff_app_payments')
+      .update(patch)
+      .eq('id', payment.id)
+
+    setUpdatingPayment(false)
+
+    if (!error) {
+      onPaymentUpdated(payment.id, patch)
+    }
+  }
+
+  function handleMarkAsFaturado(event) {
+    event.stopPropagation()
+    handlePaymentUpdate({ status: 'faturado', invoice_date: today })
+  }
+
+  function handleMarkAsPago(event) {
+    event.stopPropagation()
+    handlePaymentUpdate({
+      status: 'pago',
+      paid_at: new Date().toISOString(),
+      paid_amount: roundMoney(payment?.expected_amount),
+    })
+  }
+
+  function handleVerDetalhes(event) {
+    event.stopPropagation()
+    onNavigate(job.id)
+  }
+
+  return (
+    <div
+      className={`mx-4 mb-2 rounded-xl bg-[#141414] p-3 ${
+        isTodaySection ? 'border-l-2 border-[#FFC700]' : ''
+      } ${isCancelled ? 'opacity-50' : ''}`}
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+        className="flex w-full min-h-[56px] items-center text-left active:opacity-80"
+      >
+        <div
+          className={`flex w-12 shrink-0 flex-col items-center justify-center ${
+            highlightDateBlock ? 'rounded-lg bg-[#FFC700] px-1 py-1' : ''
+          }`}
+        >
+          <span
+            className={`text-[10px] uppercase ${
+              highlightDateBlock ? 'text-black' : 'text-[#888888]'
+            }`}
+          >
+            {weekdayAbbrev}
+          </span>
+          <span
+            className={`text-base font-bold ${
+              highlightDateBlock ? 'text-black' : 'text-white'
+            }`}
+          >
+            {dayNumber}
+          </span>
+        </div>
+
+        <div className="min-w-0 flex-1 px-3">
+          <p className="truncate text-sm font-semibold text-white">{job.event_name}</p>
+          {job.organiser_name ? (
+            <p className="truncate text-xs text-[#888888]">{job.organiser_name}</p>
+          ) : null}
+          {compactTimeLabel ? (
+            <p className="truncate text-xs text-[#888888]">{compactTimeLabel}</p>
+          ) : null}
+        </div>
+
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span
+            className="h-1.5 w-1.5 rounded-full"
+            style={{ backgroundColor: statusDotColor }}
+          />
+          {totalLabel ? (
+            <span className="text-sm font-medium text-[#FFC700]">{totalLabel}</span>
+          ) : null}
+        </div>
+
+        <div className="ml-2 flex shrink-0 items-center self-center">
+          <ChevronDownIcon expanded={expanded} />
+        </div>
+      </button>
+
+      {expanded ? (
+        <div className="px-2">
+          <div className="mb-3 mt-2 border-t border-[#222222]" />
+
+          <div className="space-y-2">
+            {job.role ? (
+              <div>
+                <p className="text-xs text-[#888888]">Função</p>
+                <p className="text-sm text-white">{job.role}</p>
+              </div>
+            ) : null}
+
+            {job.location ? (
+              <div>
+                <p className="text-xs text-[#888888]">Localização</p>
+                <p className="text-sm text-white">{job.location}</p>
+              </div>
+            ) : null}
+
+            {dateRange ? (
+              <div>
+                <p className="text-xs text-[#888888]">Datas completas</p>
+                <p className="text-sm text-white">{dateRange}</p>
+              </div>
+            ) : null}
+
+            {timeLabel ? (
+              <div>
+                <p className="text-xs text-[#888888]">Horário</p>
+                <p className="text-sm text-white">{timeLabel}</p>
+              </div>
+            ) : null}
+          </div>
+
+          {payment?.status ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <PaymentStatusBadge status={payment.status} />
+
+              {payment.status === 'por_faturar' ? (
+                <button
+                  type="button"
+                  onClick={handleMarkAsFaturado}
+                  disabled={updatingPayment}
+                  className="rounded-lg bg-[#FFC700] px-3 py-1 text-xs font-medium text-black disabled:opacity-60"
+                >
+                  Marcar como faturado
+                </button>
+              ) : null}
+
+              {payment.status === 'faturado' ? (
+                <button
+                  type="button"
+                  onClick={handleMarkAsPago}
+                  disabled={updatingPayment}
+                  className="rounded-lg bg-[#FFC700] px-3 py-1 text-xs font-medium text-black disabled:opacity-60"
+                >
+                  Marcar como pago
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={handleVerDetalhes}
+            className="mt-3 block w-full text-right text-xs text-[#888888] active:opacity-80"
+          >
+            Ver detalhes →
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
+  const today = todayISO()
+  const groupedJobs = useMemo(() => groupJobsForList(jobs, today), [jobs, today])
+  const [concluidosExpanded, setConcluidosExpanded] = useState(false)
+
+  const concluidosCount = groupedJobs.concluidos.length
+  const concluidosLabel =
+    concluidosCount === 1
+      ? '1 trabalho concluído'
+      : `${concluidosCount} trabalhos concluídos`
+
+  return (
+    <div className="mt-4 -mx-4">
+      {LIST_SECTIONS.map((section) => {
+        const sectionJobs = groupedJobs[section.id]
+        if (!sectionJobs || sectionJobs.length === 0) return null
+
+        if (section.collapsible) {
+          return (
+            <div key={section.id}>
+              <button
+                type="button"
+                onClick={() => setConcluidosExpanded((current) => !current)}
+                className="flex w-full items-center justify-between px-4 py-2 text-left active:opacity-80"
+              >
+                <span className="text-xs uppercase tracking-wide text-[#888888]">
+                  {concluidosLabel}
+                </span>
+                <ChevronDownIcon expanded={concluidosExpanded} />
+              </button>
+
+              {concluidosExpanded
+                ? sectionJobs.map((job) => (
+                    <ListJobCard
+                      key={job.id}
+                      job={job}
+                      isTodaySection={false}
+                      onNavigate={onJobClick}
+                      onPaymentUpdated={onPaymentUpdated}
+                    />
+                  ))
+                : null}
+            </div>
+          )
+        }
+
+        return (
+          <div key={section.id}>
+            <p
+              className={`px-4 py-2 text-xs uppercase tracking-wide ${
+                section.highlight
+                  ? 'border-l-2 border-[#FFC700] pl-3 text-white'
+                  : 'text-[#888888]'
+              }`}
+            >
+              {section.label}
+            </p>
+
+            {sectionJobs.map((job) => (
+              <ListJobCard
+                key={job.id}
+                job={job}
+                isTodaySection={section.id === 'hoje'}
+                onNavigate={onJobClick}
+                onPaymentUpdated={onPaymentUpdated}
+              />
+            ))}
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -826,6 +1220,10 @@ export default function Jobs() {
     navigate(`/jobs/${jobId}`)
   }
 
+  function handlePaymentUpdated(paymentId, patch) {
+    setJobs((current) => applyPaymentPatchToJobs(current, paymentId, patch))
+  }
+
   async function handleExportCalendar() {
     if (!user?.id || exporting) return
 
@@ -920,11 +1318,11 @@ export default function Jobs() {
           </p>
         </div>
       ) : (
-        <div className="mt-4 space-y-3">
-          {jobs.map((job) => (
-            <JobCard key={job.id} job={job} onClick={() => handleJobClick(job.id)} />
-          ))}
-        </div>
+        <JobsListView
+          jobs={jobs}
+          onJobClick={handleJobClick}
+          onPaymentUpdated={handlePaymentUpdated}
+        />
       )}
     </div>
   )
