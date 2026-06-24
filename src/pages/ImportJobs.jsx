@@ -151,7 +151,7 @@ async function convertHeicToJpeg(file) {
   })
 }
 
-function parseJsonArrayFromAiText(text, { debug = false } = {}) {
+function parseJsonArrayFromAiText(text) {
   let cleaned = String(text ?? '')
     .replace(/```json\s*/gi, '')
     .replace(/```\s*/g, '')
@@ -167,24 +167,9 @@ function parseJsonArrayFromAiText(text, { debug = false } = {}) {
 
   cleaned = cleaned.slice(firstBracket, lastBracket + 1).trim()
 
-  if (debug) {
-    console.log('=== CLEANED TEXT START ===')
-    console.log(cleaned)
-    console.log('=== CLEANED TEXT END ===')
-    console.log('Cleaned JSON (first 200 chars):', cleaned.slice(0, 200))
-    console.log('Cleaned JSON (last 200 chars):', cleaned.slice(-200))
-  }
-
-  try {
-    const parsed = JSON.parse(cleaned)
-    if (!Array.isArray(parsed)) throw new Error('Resposta inválida da IA.')
-    return parsed
-  } catch (err) {
-    if (debug) {
-      console.error('JSON.parse failed. Full cleaned string:', cleaned)
-    }
-    throw err
-  }
+  const parsed = JSON.parse(cleaned)
+  if (!Array.isArray(parsed)) throw new Error('Resposta inválida da IA.')
+  return parsed
 }
 
 function getDateYear(dateStr) {
@@ -379,9 +364,7 @@ async function readSpreadsheetRows(file) {
 
   if (file.name.toLowerCase().endsWith('.csv')) {
     const csvText = await readFileAsText(file)
-    console.log('File read successfully, size:', csvText.length)
     workbook = XLSX.read(csvText, { type: 'string' })
-    console.log('XLSX parsed, sheets:', workbook.SheetNames)
 
     const ws = workbook.Sheets[workbook.SheetNames[0]]
     const rawRows = XLSX.utils.sheet_to_json(ws, {
@@ -391,22 +374,13 @@ async function readSpreadsheetRows(file) {
       defval: '',
     })
 
-    console.log('Raw rows from SheetJS:', rawRows.length)
-    console.log('First 3 rows:', JSON.stringify(rawRows.slice(0, 3)))
-    console.log('Last 3 rows:', JSON.stringify(rawRows.slice(-3)))
-
     const processedRows = postProcessSheetRows(rawRows)
-
-    console.log('Rows 10-20 after date conversion:', JSON.stringify(processedRows.slice(10, 20)))
 
     return normalizeSpreadsheetRows(processedRows)
   } else {
     const buffer = await file.arrayBuffer()
-    console.log('File read successfully, size:', buffer.byteLength)
     workbook = XLSX.read(buffer, { type: 'array' })
   }
-
-  console.log('XLSX parsed, sheets:', workbook.SheetNames)
 
   const firstSheetName = workbook.SheetNames[0]
 
@@ -533,8 +507,6 @@ export default function ImportJobs() {
   }
 
   async function fetchFileImportAiResponse(text, maxTokens, { currentYearOnly = false } = {}) {
-    console.log('Text representation length:', text.length)
-
     const responseText = await callAnthropic({
       model: 'claude-sonnet-4-6',
       max_tokens: maxTokens,
@@ -546,11 +518,6 @@ export default function ImportJobs() {
       ],
     })
 
-    console.log('AI response received, length:', responseText.length)
-    console.log('=== RAW AI RESPONSE START ===')
-    console.log(responseText)
-    console.log('=== RAW AI RESPONSE END ===')
-
     return responseText
   }
 
@@ -559,9 +526,7 @@ export default function ImportJobs() {
     { maxTokens = 8192, allowEmpty = false, currentYearOnly = false } = {}
   ) {
     const responseText = await fetchFileImportAiResponse(text, maxTokens, { currentYearOnly })
-    const parsed = parseJsonArrayFromAiText(responseText, { debug: true })
-
-    console.log('JSON parsed, items:', parsed.length)
+    const parsed = parseJsonArrayFromAiText(responseText)
 
     if (!allowEmpty && parsed.length === 0) {
       throw new Error('Nenhum trabalho encontrado.')
@@ -576,19 +541,8 @@ export default function ImportJobs() {
     const currentYearOnly = !includeAllYears
     const maxTokens = 8192
 
-    console.log('Spreadsheet rows (header + data):', rowsToSend.length)
-    console.log('Data rows to send to AI:', dataRowCount)
-    console.log(
-      'Year handling:',
-      includeAllYears
-        ? 'all years (no AI year filter)'
-        : `AI prompt restricts to ${CURRENT_YEAR} only`
-    )
-    console.log('Number of batches:', Math.ceil(dataRowCount / FILE_IMPORT_BATCH_SIZE))
-
     if (dataRowCount <= FILE_IMPORT_BATCH_SIZE) {
       const flattenedText = formatRowsToText(rowsToSend)
-      console.log('Text representation (first 500 chars):', flattenedText.slice(0, 500))
 
       const parsed = await analyzeImportedFile(flattenedText, { maxTokens, currentYearOnly })
       proceedToReview(parsed)
@@ -596,12 +550,6 @@ export default function ImportJobs() {
     }
 
     const batches = splitRowsIntoBatches(rowsToSend)
-    console.log(
-      'Batches:',
-      batches.length,
-      'sizes:',
-      batches.map((batch) => batch.length)
-    )
 
     const merged = []
     let hadFailures = false
@@ -614,16 +562,9 @@ export default function ImportJobs() {
       try {
         const batchText = formatRowsToText(batches[index])
 
-        console.log('Calling AI for batch', index + 1, 'of', batches.length)
-        console.log('Batch text length:', batchText.length)
-
         const response = await fetchFileImportAiResponse(batchText, maxTokens, { currentYearOnly })
 
-        console.log('Batch AI response length:', response.length)
-
-        const parsedJobs = parseJsonArrayFromAiText(response, { debug: true })
-
-        console.log('Batch parsed jobs:', parsedJobs.length)
+        const parsedJobs = parseJsonArrayFromAiText(response)
 
         merged.push(...parsedJobs)
       } catch (err) {
@@ -633,8 +574,6 @@ export default function ImportJobs() {
     }
 
     setFileBatchProgress(null)
-
-    console.log('Total merged jobs:', merged.length)
 
     if (merged.length === 0) {
       throw new Error('Nenhum trabalho encontrado.')
