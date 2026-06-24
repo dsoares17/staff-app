@@ -51,7 +51,11 @@ ${text}
 Responde APENAS com o array JSON, sem texto adicional, sem markdown.`
 }
 
-function buildFileImportPrompt(text) {
+function buildFileImportPrompt(text, { currentYearOnly = false } = {}) {
+  const yearFilterInstruction = currentYearOnly
+    ? `\nIMPORTANTE: Apenas extrai trabalhos cujas datas sejam do ano ${CURRENT_YEAR}. Ignora completamente todos os trabalhos de anos anteriores.\n`
+    : ''
+
   return `Analisa o seguinte texto exportado de um ficheiro Excel ou CSV com informação sobre trabalhos/eventos de um freelancer de eventos. Extrai cada trabalho mencionado e devolve um array JSON com esta estrutura para cada trabalho:
 {
   event_name: string,
@@ -65,7 +69,7 @@ function buildFileImportPrompt(text) {
   payment_status: 'pago' | 'por_faturar' | 'em_atraso' | null,
   notes: string ou null
 }
-
+${yearFilterInstruction}
 REGRAS IMPORTANTES:
 - Se o valor mencionado tiver indicação explícita de ser por dia (ex: '140/dia', '140 por dia', '140€ diários'), usa payment_mode 'daily'.
 - Se não houver indicação explícita de ser por dia, assume payment_mode 'flat' (valor total do trabalho).
@@ -366,29 +370,6 @@ function getPastYearsFromRows(normalizedRows) {
   return [...years].filter((year) => year !== CURRENT_YEAR).sort((a, b) => a - b)
 }
 
-function cellMatchesCurrentYear(cell) {
-  if (cell instanceof Date) {
-    return cell.getFullYear() === CURRENT_YEAR
-  }
-
-  return String(cell).includes(String(CURRENT_YEAR))
-}
-
-function filterRowsToCurrentYear(normalizedRows) {
-  const [headerRow, ...dataRows] = normalizedRows
-
-  const filteredData = dataRows.filter((row) => {
-    const cells = Array.isArray(row) ? row : [row]
-    return cells.some((cell) => cellMatchesCurrentYear(cell))
-  })
-
-  if (filteredData.length === 0) {
-    throw new Error('no-current-year-rows')
-  }
-
-  return [headerRow, ...filteredData]
-}
-
 function formatStructuredSpreadsheetRows(rows) {
   return formatRowsToText(normalizeSpreadsheetRows(rows))
 }
@@ -439,7 +420,7 @@ async function readSpreadsheetRows(file) {
   return normalizeSpreadsheetRows(postProcessSheetRows(rows))
 }
 
-const FILE_IMPORT_BATCH_SIZE = 15
+const FILE_IMPORT_BATCH_SIZE = 20
 
 function splitRowsIntoBatches(normalizedRows, batchSize = FILE_IMPORT_BATCH_SIZE) {
   if (normalizedRows.length === 0) return []
@@ -551,8 +532,8 @@ export default function ImportJobs() {
     return parsed
   }
 
-  async function fetchFileImportAiResponse(text, maxTokens) {
-    console.log('Filtered text representation length:', text.length)
+  async function fetchFileImportAiResponse(text, maxTokens, { currentYearOnly = false } = {}) {
+    console.log('Text representation length:', text.length)
 
     const responseText = await callAnthropic({
       model: 'claude-sonnet-4-6',
@@ -560,7 +541,7 @@ export default function ImportJobs() {
       messages: [
         {
           role: 'user',
-          content: [{ type: 'text', text: buildFileImportPrompt(text) }],
+          content: [{ type: 'text', text: buildFileImportPrompt(text, { currentYearOnly }) }],
         },
       ],
     })
@@ -573,8 +554,11 @@ export default function ImportJobs() {
     return responseText
   }
 
-  async function analyzeImportedFile(text, { maxTokens = 4096, allowEmpty = false } = {}) {
-    const responseText = await fetchFileImportAiResponse(text, maxTokens)
+  async function analyzeImportedFile(
+    text,
+    { maxTokens = 8192, allowEmpty = false, currentYearOnly = false } = {}
+  ) {
+    const responseText = await fetchFileImportAiResponse(text, maxTokens, { currentYearOnly })
     const parsed = parseJsonArrayFromAiText(responseText, { debug: true })
 
     console.log('JSON parsed, items:', parsed.length)
@@ -586,46 +570,27 @@ export default function ImportJobs() {
     return parsed
   }
 
-  async function runFileImportWithRows(rows, { includeAllYears, filterToCurrentYear = false }) {
-    const allRows = rows
-
-    if (filterToCurrentYear) {
-      console.log('All rows sample (rows 10-20):', JSON.stringify(allRows.slice(10, 20)))
-    }
-
-    const rowsToSend = filterToCurrentYear ? filterRowsToCurrentYear(rows) : rows
-    const filteredRows = rowsToSend
-
-    if (filterToCurrentYear) {
-      console.log(
-        'Dropped rows:',
-        allRows
-          .filter(
-            (row) =>
-              !filteredRows.some(
-                (filteredRow) => JSON.stringify(filteredRow) === JSON.stringify(row)
-              )
-          )
-          .slice(0, 5)
-          .map((row) => JSON.stringify(row))
-      )
-      console.log('Rows before filtering:', allRows.length)
-      console.log('Rows after filtering:', filteredRows.length)
-      console.log('Sample filtered rows:', filteredRows.slice(0, 3))
-    }
-
+  async function runFileImportWithRows(rows, { includeAllYears }) {
+    const rowsToSend = rows
     const dataRowCount = Math.max(0, rowsToSend.length - 1)
+    const currentYearOnly = !includeAllYears
+    const maxTokens = 8192
 
-    console.log('Total rows after filtering:', dataRowCount)
-    console.log('Total rows to process:', filteredRows.length)
-    console.log('Number of batches:', Math.ceil(filteredRows.length / FILE_IMPORT_BATCH_SIZE))
+    console.log('Spreadsheet rows (header + data):', rowsToSend.length)
+    console.log('Data rows to send to AI:', dataRowCount)
+    console.log(
+      'Year handling:',
+      includeAllYears
+        ? 'all years (no AI year filter)'
+        : `AI prompt restricts to ${CURRENT_YEAR} only`
+    )
+    console.log('Number of batches:', Math.ceil(dataRowCount / FILE_IMPORT_BATCH_SIZE))
 
     if (dataRowCount <= FILE_IMPORT_BATCH_SIZE) {
       const flattenedText = formatRowsToText(rowsToSend)
       console.log('Text representation (first 500 chars):', flattenedText.slice(0, 500))
 
-      const maxTokens = includeAllYears ? 8192 : 4096
-      const parsed = await analyzeImportedFile(flattenedText, { maxTokens })
+      const parsed = await analyzeImportedFile(flattenedText, { maxTokens, currentYearOnly })
       proceedToReview(parsed)
       return
     }
@@ -652,7 +617,7 @@ export default function ImportJobs() {
         console.log('Calling AI for batch', index + 1, 'of', batches.length)
         console.log('Batch text length:', batchText.length)
 
-        const response = await fetchFileImportAiResponse(batchText, 4096)
+        const response = await fetchFileImportAiResponse(batchText, maxTokens, { currentYearOnly })
 
         console.log('Batch AI response length:', response.length)
 
@@ -690,19 +655,12 @@ export default function ImportJobs() {
     setAnalyzing(true)
 
     try {
-      await runFileImportWithRows(pendingFileRows, {
-        includeAllYears,
-        filterToCurrentYear: !includeAllYears,
-      })
+      await runFileImportWithRows(pendingFileRows, { includeAllYears })
     } catch (err) {
       console.error('Import error:', err)
-      if (err?.message === 'no-current-year-rows') {
-        setError(`Não foram encontrados trabalhos de ${CURRENT_YEAR} no ficheiro.`)
-      } else {
-        setError(
-          'Não foi possível processar o texto. Tenta reformular ou adiciona os trabalhos manualmente.'
-        )
-      }
+      setError(
+        'Não foi possível processar o texto. Tenta reformular ou adiciona os trabalhos manualmente.'
+      )
     } finally {
       setAnalyzing(false)
       setPendingFileRows(null)
@@ -794,7 +752,7 @@ export default function ImportJobs() {
         return
       }
 
-      await runFileImportWithRows(rows, { includeAllYears: false, filterToCurrentYear: false })
+      await runFileImportWithRows(rows, { includeAllYears: false })
     } catch (err) {
       console.error('Import error:', err)
       setError(
