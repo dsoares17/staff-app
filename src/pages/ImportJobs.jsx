@@ -2,10 +2,96 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import heic2any from 'heic2any'
 import * as XLSX from 'xlsx'
-import { callAnthropic } from '../lib/anthropicClient.js'
+import { supabase } from '../lib/supabaseClient.js'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const AI_PURPLE = '#A855F7'
+
+async function readImportAnthropicErrorMessage(response) {
+  const text = await response.text()
+
+  try {
+    const body = JSON.parse(text)
+    return body?.error?.message || 'Pedido à IA falhou.'
+  } catch {
+    return text || 'Pedido à IA falhou.'
+  }
+}
+
+async function readImportAnthropicSseStream(response) {
+  const reader = response.body?.getReader()
+  if (!reader) {
+    throw new Error('Pedido à IA falhou.')
+  }
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let assembledText = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed.startsWith('data:')) continue
+
+      const data = trimmed.slice(5).trim()
+      if (!data || data === '[DONE]') continue
+
+      let event
+      try {
+        event = JSON.parse(data)
+      } catch {
+        continue
+      }
+
+      if (event.type === 'error') {
+        throw new Error(event.error?.message || 'Pedido à IA falhou.')
+      }
+
+      if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+        assembledText += event.delta.text ?? ''
+      }
+    }
+  }
+
+  return assembledText
+}
+
+async function callImportAnthropic(requestBody) {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+
+  if (!session) {
+    throw new Error('Sessão expirada. Faz login novamente.')
+  }
+
+  const response = await fetch('/api/anthropic', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'anthropic-version': '2023-06-01',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      ...requestBody,
+      stream: true,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(await readImportAnthropicErrorMessage(response))
+  }
+
+  return readImportAnthropicSseStream(response)
+}
 
 function BackIcon() {
   return (
@@ -486,7 +572,7 @@ export default function ImportJobs() {
   }
 
   async function analyzeImportedText(text) {
-    const responseText = await callAnthropic({
+    const responseText = await callImportAnthropic({
       model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       messages: [
@@ -507,7 +593,7 @@ export default function ImportJobs() {
   }
 
   async function fetchFileImportAiResponse(text, maxTokens, { currentYearOnly = false } = {}) {
-    const responseText = await callAnthropic({
+    const responseText = await callImportAnthropic({
       model: 'claude-sonnet-4-6',
       max_tokens: maxTokens,
       messages: [
@@ -616,7 +702,7 @@ export default function ImportJobs() {
         ? 'image/png'
         : 'image/jpeg'
 
-    const responseText = await callAnthropic({
+    const responseText = await callImportAnthropic({
       model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       messages: [
