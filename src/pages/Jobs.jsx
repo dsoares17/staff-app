@@ -31,7 +31,7 @@ const PROXIMOS_SECTIONS = [
 
 const LIST_TABS = [
   { id: 'proximos', label: 'Próximos' },
-  { id: 'esteMes', label: 'Este mês' },
+  { id: 'calendario', label: 'Calendário' },
   { id: 'concluidos', label: 'Concluídos' },
 ]
 
@@ -503,24 +503,6 @@ function getProximosGroups(jobs, today) {
   return groups
 }
 
-function getEsteMesTabJobs(jobs, today) {
-  const todayDate = new Date(`${today}T00:00:00`)
-  const currentMonthKey = todayDate.getFullYear() * 12 + todayDate.getMonth()
-
-  return jobs.filter((job) => {
-    if (job.status === 'cancelled') return false
-    if (isJobInConcluidos(job, today)) return false
-
-    const start = job.start_date
-    if (!start) return false
-
-    const startDate = new Date(`${start}T00:00:00`)
-    const startMonthKey = startDate.getFullYear() * 12 + startDate.getMonth()
-
-    return startMonthKey >= currentMonthKey
-  })
-}
-
 function getConcluidosTabJobs(jobs, today) {
   return jobs.filter(
     (job) => job.status !== 'cancelled' && isJobInConcluidos(job, today)
@@ -890,12 +872,7 @@ function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
   const [activeTab, setActiveTab] = useState('proximos')
 
   const proximosGroups = useMemo(() => getProximosGroups(jobs, today), [jobs, today])
-  const esteMesJobs = useMemo(() => getEsteMesTabJobs(jobs, today), [jobs, today])
   const concluidosJobs = useMemo(() => getConcluidosTabJobs(jobs, today), [jobs, today])
-  const esteMesByMonth = useMemo(
-    () => groupJobsByMonth(esteMesJobs, true),
-    [esteMesJobs]
-  )
   const concluidosByMonth = useMemo(
     () => groupJobsByMonth(concluidosJobs, false),
     [concluidosJobs]
@@ -990,16 +967,8 @@ function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
           )
         ) : null}
 
-        {activeTab === 'esteMes' ? (
-          esteMesJobs.length === 0 ? (
-            <p className="py-8 text-center text-sm text-[#888888]">Sem trabalhos futuros</p>
-          ) : (
-            <MonthGroupedJobList
-              monthGroups={esteMesByMonth}
-              onJobClick={onJobClick}
-              onPaymentUpdated={onPaymentUpdated}
-            />
-          )
+        {activeTab === 'calendario' ? (
+          <JobsCalendar jobs={jobs} onJobClick={onJobClick} />
         ) : null}
 
         {activeTab === 'concluidos' ? (
@@ -1015,48 +984,6 @@ function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
         ) : null}
       </div>
     </div>
-  )
-}
-
-function ListIcon({ active }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={`h-5 w-5 ${active ? 'text-accent' : 'text-[#888888]'}`}
-    >
-      <line x1="8" y1="6" x2="21" y2="6" />
-      <line x1="8" y1="12" x2="21" y2="12" />
-      <line x1="8" y1="18" x2="21" y2="18" />
-      <line x1="3" y1="6" x2="3.01" y2="6" />
-      <line x1="3" y1="12" x2="3.01" y2="12" />
-      <line x1="3" y1="18" x2="3.01" y2="18" />
-    </svg>
-  )
-}
-
-function CalendarIcon({ active }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={`h-5 w-5 ${active ? 'text-accent' : 'text-[#888888]'}`}
-    >
-      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-      <line x1="16" y1="2" x2="16" y2="6" />
-      <line x1="8" y1="2" x2="8" y2="6" />
-      <line x1="3" y1="10" x2="21" y2="10" />
-    </svg>
   )
 }
 
@@ -1278,7 +1205,6 @@ export default function Jobs() {
   const navigate = useNavigate()
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
-  const [viewMode, setViewMode] = useState('list')
   const [exporting, setExporting] = useState(false)
   const [exportMessage, setExportMessage] = useState('')
 
@@ -1381,31 +1307,13 @@ export default function Jobs() {
         <div className="flex items-center gap-1">
           <button
             type="button"
-            onClick={() => setViewMode('list')}
-            aria-label="Vista em lista"
-            className="flex h-10 w-10 items-center justify-center rounded-full transition-colors active:bg-surface"
+            onClick={handleExportCalendar}
+            disabled={exporting || authLoading}
+            aria-label="Exportar calendário"
+            className="flex h-10 w-10 items-center justify-center rounded-full transition-colors active:bg-surface disabled:opacity-60"
           >
-            <ListIcon active={viewMode === 'list'} />
+            <ExportIcon loading={exporting} />
           </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('calendar')}
-            aria-label="Vista em calendário"
-            className="flex h-10 w-10 items-center justify-center rounded-full transition-colors active:bg-surface"
-          >
-            <CalendarIcon active={viewMode === 'calendar'} />
-          </button>
-          {viewMode === 'calendar' ? (
-            <button
-              type="button"
-              onClick={handleExportCalendar}
-              disabled={exporting || authLoading}
-              aria-label="Exportar calendário"
-              className="flex h-10 w-10 items-center justify-center rounded-full transition-colors active:bg-surface disabled:opacity-60"
-            >
-              <ExportIcon loading={exporting} />
-            </button>
-          ) : null}
           <button
             type="button"
             onClick={handleAddJob}
@@ -1427,8 +1335,6 @@ export default function Jobs() {
           <SkeletonCard />
           <SkeletonCard />
         </div>
-      ) : viewMode === 'calendar' ? (
-        <JobsCalendar jobs={jobs} onJobClick={handleJobClick} />
       ) : jobs.length === 0 ? (
         <div className="mt-8 text-center">
           <p className="text-sm text-muted">
