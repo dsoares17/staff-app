@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 import { supabase } from '../lib/supabaseClient.js'
@@ -9,8 +9,33 @@ export default function Signup() {
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+
+  const passwordChecks = useMemo(
+    () => ({
+      minLength: password.length >= 8,
+      hasNumber: /\d/.test(password),
+      hasUppercase: /[A-Z]/.test(password),
+    }),
+    [password]
+  )
+
+  const passwordStrengthMet =
+    passwordChecks.minLength && passwordChecks.hasNumber && passwordChecks.hasUppercase
+
+  const passwordsMatch = password === confirmPassword && confirmPassword.length > 0
+  const showPasswordMismatch =
+    confirmPassword.length > 0 && password !== confirmPassword
+
+  const canSubmit = passwordStrengthMet && passwordsMatch && !busy
+
+  const passwordStrengthRules = [
+    { key: 'minLength', label: 'Mínimo 8 caracteres' },
+    { key: 'hasNumber', label: 'Pelo menos um número' },
+    { key: 'hasUppercase', label: 'Pelo menos uma letra maiúscula' },
+  ]
 
   if (!loading && user) {
     return <Navigate to="/jobs" replace />
@@ -84,14 +109,48 @@ export default function Signup() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              minLength={6}
+              minLength={8}
               autoComplete="new-password"
             />
           </label>
 
+          {password.length > 0 ? (
+            <div className="space-y-1">
+              {passwordStrengthRules.map((rule) => {
+                const met = passwordChecks[rule.key]
+
+                return (
+                  <p
+                    key={rule.key}
+                    className={`text-xs ${met ? 'text-[#00FF87]' : 'text-[#888888]'}`}
+                  >
+                    {met ? '✓' : '·'} {rule.label}
+                  </p>
+                )
+              })}
+            </div>
+          ) : null}
+
+          <label className="block">
+            <span className="text-sm text-muted">Confirmar palavra-passe</span>
+            <input
+              className="mt-1 ds-input"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              minLength={8}
+              autoComplete="new-password"
+            />
+          </label>
+
+          {showPasswordMismatch ? (
+            <p className="text-xs text-[#FF4444]">As palavras-passe não coincidem</p>
+          ) : null}
+
           {error ? <div className="ds-alert-danger">{error}</div> : null}
 
-          <button type="submit" disabled={busy} className="w-full ds-btn-primary">
+          <button type="submit" disabled={!canSubmit} className="w-full ds-btn-primary">
             {busy ? 'A criar conta…' : 'Criar conta'}
           </button>
         </form>
