@@ -24,13 +24,15 @@ const MONTH_NAMES = [
 const WEEK_DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 const WEEK_DAY_ABBREV = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB']
 
-const LIST_SECTIONS = [
+const PROXIMOS_SECTIONS = [
   { id: 'hoje', label: 'Hoje', highlight: true },
-  { id: 'estaSemana', label: 'Esta semana' },
-  { id: 'proximaSemana', label: 'Próxima semana' },
+  { id: 'proximos7Dias', label: 'Próximos 7 dias' },
+]
+
+const LIST_TABS = [
+  { id: 'proximos', label: 'Próximos' },
   { id: 'esteMes', label: 'Este mês' },
-  { id: 'maisTarde', label: 'Mais tarde' },
-  { id: 'concluidos', label: 'Concluídos', collapsible: true },
+  { id: 'concluidos', label: 'Concluídos' },
 ]
 
 const JOB_STATUS = {
@@ -450,8 +452,6 @@ function addDaysToDate(isoDate, days) {
 }
 
 function isJobInConcluidos(job, today) {
-  if (job.status === 'completed' || job.status === 'cancelled') return true
-
   const endDate = getJobEndDate(job)
   if (!endDate) {
     return job.start_date ? job.start_date < today : false
@@ -466,58 +466,100 @@ function isJobToday(job, today) {
   return job.start_date <= today && today <= end
 }
 
-function getJobListSection(job, today) {
-  if (isJobInConcluidos(job, today)) return 'concluidos'
-  if (isJobToday(job, today)) return 'hoje'
+function compareJobsByStartDate(a, b, ascending = true) {
+  const aDate = a.start_date || ''
+  const bDate = b.start_date || ''
+  const dateCmp = aDate.localeCompare(bDate)
+  if (dateCmp !== 0) return ascending ? dateCmp : -dateCmp
 
-  const start = job.start_date
-  if (!start) return 'maisTarde'
-
-  const weekEnd = addDaysToDate(today, 7)
-  const nextWeekEnd = addDaysToDate(today, 14)
-
-  if (start > today && start <= weekEnd) return 'estaSemana'
-  if (start > weekEnd && start <= nextWeekEnd) return 'proximaSemana'
-
-  const todayDate = new Date(`${today}T00:00:00`)
-  const startDate = new Date(`${start}T00:00:00`)
-
-  if (
-    startDate.getFullYear() === todayDate.getFullYear() &&
-    startDate.getMonth() === todayDate.getMonth() &&
-    start > nextWeekEnd
-  ) {
-    return 'esteMes'
-  }
-
-  return 'maisTarde'
+  const aTime = a.start_time ? String(a.start_time).slice(0, 5) : '99:99'
+  const bTime = b.start_time ? String(b.start_time).slice(0, 5) : '99:99'
+  return ascending ? aTime.localeCompare(bTime) : bTime.localeCompare(aTime)
 }
 
-function groupJobsForList(jobs, today) {
-  const groups = {
-    hoje: [],
-    estaSemana: [],
-    proximaSemana: [],
-    esteMes: [],
-    maisTarde: [],
-    concluidos: [],
-  }
+function getProximosGroups(jobs, today) {
+  const groups = { hoje: [], proximos7Dias: [] }
+  const weekEnd = addDaysToDate(today, 7)
 
   for (const job of jobs) {
-    groups[getJobListSection(job, today)].push(job)
+    if (job.status === 'cancelled') continue
+    if (isJobInConcluidos(job, today)) continue
+    if (isJobToday(job, today)) {
+      groups.hoje.push(job)
+      continue
+    }
+
+    const start = job.start_date
+    if (!start) continue
+    if (start > today && start <= weekEnd) {
+      groups.proximos7Dias.push(job)
+    }
   }
 
   for (const key of Object.keys(groups)) {
-    groups[key].sort((a, b) => {
-      const aDate = a.start_date || ''
-      const bDate = b.start_date || ''
-      const dateCmp = aDate.localeCompare(bDate)
-      if (dateCmp !== 0) return dateCmp
+    groups[key].sort((a, b) => compareJobsByStartDate(a, b, true))
+  }
 
-      const aTime = a.start_time ? String(a.start_time).slice(0, 5) : '99:99'
-      const bTime = b.start_time ? String(b.start_time).slice(0, 5) : '99:99'
-      return aTime.localeCompare(bTime)
-    })
+  return groups
+}
+
+function getEsteMesTabJobs(jobs, today) {
+  const todayDate = new Date(`${today}T00:00:00`)
+  const currentMonthKey = todayDate.getFullYear() * 12 + todayDate.getMonth()
+
+  return jobs.filter((job) => {
+    if (job.status === 'cancelled') return false
+    if (isJobInConcluidos(job, today)) return false
+
+    const start = job.start_date
+    if (!start) return false
+
+    const startDate = new Date(`${start}T00:00:00`)
+    const startMonthKey = startDate.getFullYear() * 12 + startDate.getMonth()
+
+    return startMonthKey >= currentMonthKey
+  })
+}
+
+function getConcluidosTabJobs(jobs, today) {
+  return jobs.filter(
+    (job) => job.status !== 'cancelled' && isJobInConcluidos(job, today)
+  )
+}
+
+function groupJobsByMonth(jobs, ascending = true) {
+  const buckets = new Map()
+
+  for (const job of jobs) {
+    const start = job.start_date
+    let year
+    let month
+
+    if (!start) {
+      year = 9999
+      month = 11
+    } else {
+      const date = new Date(`${start}T00:00:00`)
+      year = date.getFullYear()
+      month = date.getMonth()
+    }
+
+    const key = `${year}-${String(month).padStart(2, '0')}`
+    if (!buckets.has(key)) {
+      buckets.set(key, { year, month, jobs: [] })
+    }
+    buckets.get(key).jobs.push(job)
+  }
+
+  const groups = Array.from(buckets.values())
+  groups.sort((a, b) => {
+    const cmp = a.year !== b.year ? a.year - b.year : a.month - b.month
+    return ascending ? cmp : -cmp
+  })
+
+  for (const group of groups) {
+    group.jobs.sort((a, b) => compareJobsByStartDate(a, b, ascending))
+    group.label = `${MONTH_NAMES[group.month].toUpperCase()} ${group.year}`
   }
 
   return groups
@@ -826,76 +868,152 @@ function ListJobCard({ job, isTodaySection, onNavigate, onPaymentUpdated }) {
   )
 }
 
+function MonthGroupedJobList({ monthGroups, onJobClick, onPaymentUpdated }) {
+  return monthGroups.map((group) => (
+    <div key={group.label}>
+      <p className="px-4 py-2 text-xs uppercase tracking-wide text-[#888888]">{group.label}</p>
+      {group.jobs.map((job) => (
+        <ListJobCard
+          key={job.id}
+          job={job}
+          isTodaySection={false}
+          onNavigate={onJobClick}
+          onPaymentUpdated={onPaymentUpdated}
+        />
+      ))}
+    </div>
+  ))
+}
+
 function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
   const today = todayISO()
-  const groupedJobs = useMemo(() => groupJobsForList(jobs, today), [jobs, today])
-  const [concluidosExpanded, setConcluidosExpanded] = useState(false)
+  const [activeTab, setActiveTab] = useState('proximos')
 
-  const concluidosCount = groupedJobs.concluidos.length
-  const concluidosLabel =
-    concluidosCount === 1
-      ? '1 trabalho concluído'
-      : `${concluidosCount} trabalhos concluídos`
+  const proximosGroups = useMemo(() => getProximosGroups(jobs, today), [jobs, today])
+  const esteMesJobs = useMemo(() => getEsteMesTabJobs(jobs, today), [jobs, today])
+  const concluidosJobs = useMemo(() => getConcluidosTabJobs(jobs, today), [jobs, today])
+  const esteMesByMonth = useMemo(
+    () => groupJobsByMonth(esteMesJobs, true),
+    [esteMesJobs]
+  )
+  const concluidosByMonth = useMemo(
+    () => groupJobsByMonth(concluidosJobs, false),
+    [concluidosJobs]
+  )
+
+  const hasProximosJobs =
+    proximosGroups.hoje.length > 0 || proximosGroups.proximos7Dias.length > 0
 
   return (
-    <div className="mt-4 -mx-4">
-      {LIST_SECTIONS.map((section) => {
-        const sectionJobs = groupedJobs[section.id]
-        if (!sectionJobs || sectionJobs.length === 0) return null
-
-        if (section.collapsible) {
-          return (
-            <div key={section.id}>
-              <button
-                type="button"
-                onClick={() => setConcluidosExpanded((current) => !current)}
-                className="flex w-full items-center justify-between px-4 py-2 text-left active:opacity-80"
-              >
-                <span className="text-xs uppercase tracking-wide text-[#888888]">
-                  {concluidosLabel}
-                </span>
-                <ChevronDownIcon expanded={concluidosExpanded} />
-              </button>
-
-              {concluidosExpanded
-                ? sectionJobs.map((job) => (
-                    <ListJobCard
-                      key={job.id}
-                      job={job}
-                      isTodaySection={false}
-                      onNavigate={onJobClick}
-                      onPaymentUpdated={onPaymentUpdated}
-                    />
-                  ))
-                : null}
-            </div>
-          )
-        }
-
-        return (
-          <div key={section.id}>
-            <p
-              className={`px-4 py-2 text-xs uppercase tracking-wide ${
-                section.highlight
-                  ? 'border-l-2 border-[#FFC700] pl-3 text-white'
+    <div>
+      <div className="-mx-4">
+        <div className="flex">
+          {LIST_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex-1 py-2 text-sm ${
+                activeTab === tab.id
+                  ? 'border-b-2 border-[#FFC700] font-medium text-[#FFC700]'
                   : 'text-[#888888]'
               }`}
             >
-              {section.label}
-            </p>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <div className="border-b border-[#222222]" />
+      </div>
 
-            {sectionJobs.map((job) => (
-              <ListJobCard
-                key={job.id}
-                job={job}
-                isTodaySection={section.id === 'hoje'}
-                onNavigate={onJobClick}
-                onPaymentUpdated={onPaymentUpdated}
-              />
-            ))}
-          </div>
-        )
-      })}
+      <div className="mt-4 -mx-4">
+        {activeTab === 'proximos' ? (
+          !hasProximosJobs ? (
+            <p className="py-8 text-center text-sm text-[#888888]">
+              Sem trabalhos nos próximos 7 dias
+            </p>
+          ) : (
+            PROXIMOS_SECTIONS.map((section) => {
+              const sectionJobs = proximosGroups[section.id] ?? []
+
+              if (section.id === 'hoje' && sectionJobs.length === 0) return null
+
+              if (section.id === 'proximos7Dias') {
+                return (
+                  <div key={section.id}>
+                    <p className="px-4 py-2 text-xs uppercase tracking-wide text-[#888888]">
+                      {section.label}
+                    </p>
+                    {sectionJobs.length === 0 ? (
+                      <p className="px-4 text-sm text-[#888888]">
+                        Sem trabalhos nos próximos 7 dias
+                      </p>
+                    ) : (
+                      sectionJobs.map((job) => (
+                        <ListJobCard
+                          key={job.id}
+                          job={job}
+                          isTodaySection={false}
+                          onNavigate={onJobClick}
+                          onPaymentUpdated={onPaymentUpdated}
+                        />
+                      ))
+                    )}
+                  </div>
+                )
+              }
+
+              return (
+                <div key={section.id}>
+                  <p
+                    className={`px-4 py-2 text-xs uppercase tracking-wide ${
+                      section.highlight
+                        ? 'border-l-2 border-[#FFC700] pl-3 text-white'
+                        : 'text-[#888888]'
+                    }`}
+                  >
+                    {section.label}
+                  </p>
+
+                  {sectionJobs.map((job) => (
+                    <ListJobCard
+                      key={job.id}
+                      job={job}
+                      isTodaySection={section.id === 'hoje'}
+                      onNavigate={onJobClick}
+                      onPaymentUpdated={onPaymentUpdated}
+                    />
+                  ))}
+                </div>
+              )
+            })
+          )
+        ) : null}
+
+        {activeTab === 'esteMes' ? (
+          esteMesJobs.length === 0 ? (
+            <p className="py-8 text-center text-sm text-[#888888]">Sem trabalhos futuros</p>
+          ) : (
+            <MonthGroupedJobList
+              monthGroups={esteMesByMonth}
+              onJobClick={onJobClick}
+              onPaymentUpdated={onPaymentUpdated}
+            />
+          )
+        ) : null}
+
+        {activeTab === 'concluidos' ? (
+          concluidosJobs.length === 0 ? (
+            <p className="py-8 text-center text-sm text-[#888888]">Sem trabalhos concluídos</p>
+          ) : (
+            <MonthGroupedJobList
+              monthGroups={concluidosByMonth}
+              onJobClick={onJobClick}
+              onPaymentUpdated={onPaymentUpdated}
+            />
+          )
+        ) : null}
+      </div>
     </div>
   )
 }

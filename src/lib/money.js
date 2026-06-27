@@ -6,20 +6,21 @@ export function roundMoney(value) {
 }
 
 export function formatEuro(amount, { zeroLabel = null } = {}) {
-  const rounded = roundMoney(amount)
-  if (rounded == null || rounded <= 0) return zeroLabel
+  if (amount == null || amount === '') return zeroLabel
+  const num = Number(amount)
+  if (!Number.isFinite(num) || num <= 0) return zeroLabel
 
-  const fixed = rounded.toFixed(2)
+  if (num % 1 === 0) {
+    const withDots = String(num).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+    return `€${withDots}`
+  }
+
+  const fixed = num.toFixed(2)
   const [intPart, decPart] = fixed.split('.')
   const withDots = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-
-  if (decPart === '00') return `€${withDots}`
   return `€${withDots},${decPart}`
 }
 
-export function formatEuroWhole(amount) {
-  const rounded = roundMoney(amount) ?? 0
-  const intValue = Math.round(rounded)
-  const withDots = String(intValue).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-  return `€${withDots}`
+export function formatEuroWhole(amount, options) {
+  return formatEuro(amount, options)
 }

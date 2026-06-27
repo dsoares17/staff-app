@@ -114,6 +114,7 @@ export default function EditJob() {
               schedule_date: row.scheduleDate,
               start_time: row.startTime || null,
               end_time: row.endTime || null,
+              hours: row.hours ?? null,
             }))
           )
 

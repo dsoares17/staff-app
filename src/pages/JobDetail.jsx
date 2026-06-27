@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 import { formatEuro, formatEuroWhole, roundMoney } from '../lib/money.js'
+import {
+  calcHourlyPrimaryFromSchedule,
+  calcScheduleTotalHours,
+} from '../components/JobForm.jsx'
 import { supabase } from '../lib/supabaseClient.js'
 
 const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -106,6 +110,23 @@ function formatScheduleDayLabel(dateISO) {
   return `${SCHEDULE_WEEK_DAYS[date.getDay()]}, ${date.getDate()} ${MONTHS[date.getMonth()]}`
 }
 
+function buildScheduleCalcInput(job, schedules) {
+  const hasPerDaySchedules = schedules.some((row) => row.start_time || row.end_time)
+
+  return {
+    startDate: job.start_date,
+    endDate: job.end_date,
+    startTime: formatTimeValue(job.start_time) ?? '',
+    endTime: formatTimeValue(job.end_time) ?? '',
+    scheduleMode: hasPerDaySchedules ? 'perDay' : 'single',
+    dailySchedules: schedules.map((row) => ({
+      scheduleDate: row.schedule_date,
+      startTime: formatTimeValue(row.start_time) ?? '',
+      endTime: formatTimeValue(row.end_time) ?? '',
+    })),
+  }
+}
+
 function calcHourlyExtraTotal(job) {
   const rate = Number(job.hourly_rate)
   const parsedHours = Number(job.hours)
@@ -115,8 +136,21 @@ function calcHourlyExtraTotal(job) {
   return roundMoney(rate * parsedHours) ?? 0
 }
 
-function calcReceivableTotal(job) {
+function calcReceivableTotal(job, schedules = []) {
   const hourlyExtra = calcHourlyExtraTotal(job)
+
+  if (job.hourly_rate_primary != null && Number(job.hourly_rate_primary) > 0) {
+    const scheduleInput = buildScheduleCalcInput(job, schedules)
+    const primaryTotal = calcHourlyPrimaryFromSchedule({
+      hourlyRatePrimary: job.hourly_rate_primary,
+      ...scheduleInput,
+    })
+
+    if (primaryTotal == null) return hourlyExtra > 0 ? roundMoney(hourlyExtra) : null
+
+    const total = roundMoney(primaryTotal + hourlyExtra)
+    return total != null && total > 0 ? total : null
+  }
 
   if (job.flat_total != null && Number(job.flat_total) > 0) {
     return roundMoney(Number(job.flat_total) + hourlyExtra)
@@ -132,6 +166,7 @@ function calcReceivableTotal(job) {
 
 function hasPayData(job) {
   return (
+    (job.hourly_rate_primary != null && Number(job.hourly_rate_primary) > 0) ||
     (job.flat_total != null && Number(job.flat_total) > 0) ||
     (job.work_days != null && job.work_rate != null) ||
     (job.transport_travel_days != null && job.transport_travel_rate != null) ||
@@ -145,8 +180,27 @@ function formatHoursLabel(hours) {
   return Number.isInteger(value) ? String(value) : String(value).replace('.', ',')
 }
 
-function buildPayBreakdownLines(job) {
+function buildPayBreakdownLines(job, schedules = []) {
   const lines = []
+
+  if (job.hourly_rate_primary != null && Number(job.hourly_rate_primary) > 0) {
+    const rate = Number(job.hourly_rate_primary)
+    const scheduleInput = buildScheduleCalcInput(job, schedules)
+    const totalHours = calcScheduleTotalHours(scheduleInput)
+    const primaryTotal = calcHourlyPrimaryFromSchedule({
+      hourlyRatePrimary: job.hourly_rate_primary,
+      ...scheduleInput,
+    })
+
+    if (primaryTotal != null && totalHours != null) {
+      lines.push(`${formatEuro(rate)}/hora`)
+      lines.push(
+        `${formatHoursLabel(totalHours)} horas × ${formatEuro(rate)}/hora = ${formatEuro(primaryTotal)}`
+      )
+    } else {
+      lines.push(`${formatEuro(rate)}/hora · horas a definir`)
+    }
+  }
 
   if (job.flat_total != null && Number(job.flat_total) > 0) {
     lines.push(`${formatEuro(job.flat_total)} valor total`)
@@ -166,7 +220,7 @@ function buildPayBreakdownLines(job) {
     const rate = Number(job.hourly_rate)
     const hours = Number(job.hours)
     if (Number.isFinite(rate) && Number.isFinite(hours) && rate > 0 && hours > 0) {
-      lines.push(`${formatEuro(rate)}/hora × ${formatHoursLabel(hours)} horas`)
+      lines.push(`${formatEuro(rate)}/hora extra × ${formatHoursLabel(hours)} horas`)
     }
   }
 
@@ -646,8 +700,8 @@ export default function JobDetail() {
   const jobStatus = JOB_STATUS[job.status] ?? JOB_STATUS.pending
   const dateRange = formatDateRange(job.start_date, job.end_date)
   const singleTimeLabel = formatTimeRange(job.start_time, job.end_time)
-  const receivableTotal = calcReceivableTotal(job)
-  const payBreakdownLines = buildPayBreakdownLines(job)
+  const receivableTotal = calcReceivableTotal(job, schedules)
+  const payBreakdownLines = buildPayBreakdownLines(job, schedules)
   const metaParts = [job.organiser_name, job.role].filter(Boolean)
   const showMoneyZone = hasPayData(job) || payment
   const pendingExpensesCount = expenses.filter((expense) => !expense.reimbursed).length

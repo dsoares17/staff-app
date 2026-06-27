@@ -398,6 +398,85 @@ function buildDailyScheduleRows(startDate, endDate, existingRows = []) {
   }))
 }
 
+function calcTimeSpanHours(startTime, endTime) {
+  if (!startTime || !endTime) return null
+
+  const [sh, sm] = String(startTime).slice(0, 5).split(':').map(Number)
+  const [eh, em] = String(endTime).slice(0, 5).split(':').map(Number)
+
+  if (!Number.isFinite(sh) || !Number.isFinite(sm) || !Number.isFinite(eh) || !Number.isFinite(em)) {
+    return null
+  }
+
+  const startMinutes = sh * 60 + sm
+  const endMinutes = eh * 60 + em
+  if (endMinutes <= startMinutes) return null
+
+  const hours = (endMinutes - startMinutes) / 60
+  return hours > 0 ? hours : null
+}
+
+export function calcScheduleTotalHours({
+  startDate,
+  endDate,
+  startTime,
+  endTime,
+  scheduleMode,
+  dailySchedules,
+}) {
+  const multiDay = isMultiDayEvent(startDate, endDate)
+
+  if (!multiDay) {
+    return calcTimeSpanHours(startTime, endTime)
+  }
+
+  if (scheduleMode === 'perDay' && dailySchedules?.length) {
+    let totalHours = 0
+    let hasAny = false
+
+    for (const row of dailySchedules) {
+      const dayHours = calcTimeSpanHours(row.startTime, row.endTime)
+      if (dayHours != null) {
+        totalHours += dayHours
+        hasAny = true
+      }
+    }
+
+    return hasAny && totalHours > 0 ? totalHours : null
+  }
+
+  const hoursPerDay = calcTimeSpanHours(startTime, endTime)
+  if (hoursPerDay == null) return null
+
+  const days = enumerateDateRange(startDate, endDate).length
+  return hoursPerDay * days
+}
+
+export function calcHourlyPrimaryFromSchedule({
+  hourlyRatePrimary,
+  startDate,
+  endDate,
+  startTime,
+  endTime,
+  scheduleMode,
+  dailySchedules,
+}) {
+  const rate = parseNumber(hourlyRatePrimary)
+  if (rate == null || rate <= 0) return null
+
+  const totalHours = calcScheduleTotalHours({
+    startDate,
+    endDate,
+    startTime,
+    endTime,
+    scheduleMode,
+    dailySchedules,
+  })
+
+  if (totalHours == null || totalHours <= 0) return null
+  return roundMoney(rate * totalHours)
+}
+
 async function insertDailySchedulesForNewJob(userId, jobData, dailySchedules) {
   const since = new Date(Date.now() - 15000).toISOString()
 
@@ -467,8 +546,24 @@ export function calcReceivableFromFormState(formState) {
     roundMoney((parsedTransportTravelDays ?? 0) * (parsedTransportTravelRate ?? 0)) ?? 0
   const hourlyExtra = calcHourlyExtraTotal(formState.hourlyRate, formState.hours)
 
-  const baseTotal =
-    formState.paymentMode === 'daily' ? workTotal + travelTotal : (parsedFlatTotal ?? 0)
+  let baseTotal = 0
+  if (formState.paymentMode === 'hourly') {
+    const primaryTotal = calcHourlyPrimaryFromSchedule({
+      hourlyRatePrimary: formState.hourlyRatePrimary,
+      startDate: formState.startDate,
+      endDate: formState.endDate,
+      startTime: formState.startTime,
+      endTime: formState.endTime,
+      scheduleMode: formState.scheduleMode,
+      dailySchedules: formState.dailySchedules,
+    })
+    if (primaryTotal == null) return null
+    baseTotal = primaryTotal
+  } else if (formState.paymentMode === 'daily') {
+    baseTotal = workTotal + travelTotal
+  } else {
+    baseTotal = parsedFlatTotal ?? 0
+  }
 
   return roundMoney(baseTotal + hourlyExtra)
 }
@@ -523,7 +618,11 @@ function formatSuggestionMeta(job) {
 
 export function jobToFormValues(job) {
   const paymentMode =
-    job.flat_total != null && Number(job.flat_total) > 0 ? 'flat' : 'daily'
+    job.hourly_rate_primary != null && Number(job.hourly_rate_primary) > 0
+      ? 'hourly'
+      : job.flat_total != null && Number(job.flat_total) > 0
+        ? 'flat'
+        : 'daily'
   const startTime = formatTime(job.start_time)
   const endTime = formatTime(job.end_time)
 
@@ -543,9 +642,9 @@ export function jobToFormValues(job) {
     workDays: numberToField(job.work_days),
     workRate: numberToField(job.work_rate),
     flatTotal: numberToField(job.flat_total),
+    hourlyRatePrimary: numberToField(job.hourly_rate_primary),
     hourlyExpanded:
-      job.hourly_rate != null ||
-      (job.hours != null && Number(job.hours) > 0),
+      job.hourly_rate != null || (job.hours != null && Number(job.hours) > 0),
     hourlyRate: numberToField(job.hourly_rate),
     hours: numberToField(job.hours),
     mealsExpanded: Boolean(job.meals_type && job.meals_type !== 'none'),
@@ -580,6 +679,7 @@ export function buildJobPayload(formState) {
   const parsedTransportTravelRate = parseNumber(formState.transportTravelRate)
   const parsedHourlyRate = parseNumber(formState.hourlyRate)
   const parsedHours = parseNumber(formState.hours)
+  const parsedHourlyRatePrimary = parseNumber(formState.hourlyRatePrimary)
 
   const expectedAmount = calcReceivableFromFormState(formState)
 
@@ -602,8 +702,10 @@ export function buildJobPayload(formState) {
       work_days: formState.paymentMode === 'daily' ? parsedWorkDays : null,
       work_rate: formState.paymentMode === 'daily' ? roundMoney(parsedWorkRate) : null,
       flat_total: formState.paymentMode === 'flat' ? parsedFlatTotal : null,
-      hourly_rate: formState.hourlyExpanded ? roundMoney(parsedHourlyRate) : null,
+      hourly_rate_primary:
+        formState.paymentMode === 'hourly' ? roundMoney(parsedHourlyRatePrimary) : null,
       hours: formState.hourlyExpanded ? parsedHours : null,
+      hourly_rate: formState.hourlyExpanded ? roundMoney(parsedHourlyRate) : null,
       meals_type: formState.mealsType,
       meals_rate: formState.mealsType === 'allowance' ? roundMoney(parsedMealsRate) : null,
       meals_count: formState.mealsType === 'allowance' ? parsedMealsCount : null,
@@ -653,6 +755,7 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
   const [workDays, setWorkDays] = useState('')
   const [workRate, setWorkRate] = useState('')
   const [flatTotal, setFlatTotal] = useState('')
+  const [hourlyRatePrimary, setHourlyRatePrimary] = useState('')
   const [hourlyExpanded, setHourlyExpanded] = useState(false)
   const [hourlyRate, setHourlyRate] = useState('')
   const [hours, setHours] = useState('')
@@ -815,6 +918,7 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
     setWorkDays(values.workDays)
     setWorkRate(values.workRate)
     setFlatTotal(values.flatTotal)
+    setHourlyRatePrimary(values.hourlyRatePrimary)
     setHourlyExpanded(values.hourlyExpanded)
     setHourlyRate(values.hourlyRate)
     setHours(values.hours)
@@ -989,6 +1093,56 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
 
   const showHourlyExtraTotal = hourlyExtraTotal > 0
 
+  const hourlyPrimaryTotal = useMemo(
+    () =>
+      paymentMode === 'hourly'
+        ? calcHourlyPrimaryFromSchedule({
+            hourlyRatePrimary,
+            startDate,
+            endDate,
+            startTime,
+            endTime,
+            scheduleMode,
+            dailySchedules: scheduleMode === 'perDay' ? dailySchedules : [],
+          })
+        : null,
+    [
+      paymentMode,
+      hourlyRatePrimary,
+      startDate,
+      endDate,
+      startTime,
+      endTime,
+      scheduleMode,
+      dailySchedules,
+    ]
+  )
+
+  const scheduleTotalHours = useMemo(
+    () =>
+      paymentMode === 'hourly'
+        ? calcScheduleTotalHours({
+            startDate,
+            endDate,
+            startTime,
+            endTime,
+            scheduleMode,
+            dailySchedules: scheduleMode === 'perDay' ? dailySchedules : [],
+          })
+        : null,
+    [paymentMode, startDate, endDate, startTime, endTime, scheduleMode, dailySchedules]
+  )
+
+  const hasScheduleForHourly = scheduleTotalHours != null && scheduleTotalHours > 0
+  const hasHourlyPrimaryRate =
+    parseNumber(hourlyRatePrimary) != null && parseNumber(hourlyRatePrimary) > 0
+
+  const hourlyModeTotal = useMemo(() => {
+    if (paymentMode !== 'hourly' || hourlyPrimaryTotal == null) return null
+    const extra = calcHourlyExtraTotal(hourlyRate, hours)
+    return roundMoney(hourlyPrimaryTotal + extra)
+  }, [paymentMode, hourlyPrimaryTotal, hourlyRate, hours])
+
   const receivableTotal = useMemo(
     () =>
       calcReceivableFromFormState({
@@ -996,6 +1150,13 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
         workDays,
         workRate,
         flatTotal,
+        hourlyRatePrimary,
+        startDate,
+        endDate,
+        startTime,
+        endTime,
+        scheduleMode,
+        dailySchedules: scheduleMode === 'perDay' ? dailySchedules : [],
         hourlyRate,
         hours,
         transportTravelDays,
@@ -1006,6 +1167,13 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
       workDays,
       workRate,
       flatTotal,
+      hourlyRatePrimary,
+      startDate,
+      endDate,
+      startTime,
+      endTime,
+      scheduleMode,
+      dailySchedules,
       hourlyRate,
       hours,
       transportTravelDays,
@@ -1013,7 +1181,8 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
     ]
   )
 
-  const showReceivableTotal = receivableTotal != null && receivableTotal > 0
+  const showReceivableTotal =
+    paymentMode !== 'hourly' && receivableTotal != null && receivableTotal > 0
 
   const flatSubtotal = useMemo(() => parseNumber(flatTotal) ?? 0, [flatTotal])
 
@@ -1078,6 +1247,7 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
     setWorkDays(values.workDays)
     setWorkRate(values.workRate)
     setFlatTotal(values.flatTotal)
+    setHourlyRatePrimary(values.hourlyRatePrimary)
     setHourlyExpanded(values.hourlyExpanded)
     setHourlyRate(values.hourlyRate)
     setHours(values.hours)
@@ -1143,6 +1313,9 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
       workDays,
       workRate,
       flatTotal,
+      hourlyRatePrimary,
+      scheduleMode: usePerDaySchedule ? 'perDay' : 'single',
+      dailySchedules: usePerDaySchedule ? dailySchedules : [],
       hourlyExpanded,
       hourlyRate,
       hours,
@@ -1482,30 +1655,16 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
         <section className="space-y-3">
           <span className="block text-sm text-muted">Remuneração</span>
 
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => setPaymentMode('daily')}
-              className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
-                paymentMode === 'daily'
-                  ? 'bg-accent text-[#000000]'
-                  : 'bg-[#222222] text-[#888888]'
-              }`}
-            >
-              Por dia
-            </button>
-            <button
-              type="button"
-              onClick={() => setPaymentMode('flat')}
-              className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
-                paymentMode === 'flat'
-                  ? 'bg-accent text-[#000000]'
-                  : 'bg-[#222222] text-[#888888]'
-              }`}
-            >
-              Valor total
-            </button>
-          </div>
+          <PillToggle
+            columns={3}
+            value={paymentMode}
+            onChange={setPaymentMode}
+            options={[
+              { value: 'daily', label: 'Por dia' },
+              { value: 'hourly', label: 'Por hora' },
+              { value: 'flat', label: 'Valor total' },
+            ]}
+          />
 
           {paymentMode === 'daily' ? (
             <div className="space-y-3">
@@ -1535,7 +1694,33 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
                 </p>
               ) : null}
             </div>
-          ) : (
+          ) : null}
+
+          {paymentMode === 'hourly' ? (
+            <div className="space-y-3">
+              <label className="block">
+                <span className="mb-1.5 block text-sm text-muted">Valor/hora</span>
+                <EuroInput
+                  value={hourlyRatePrimary}
+                  onChange={(e) => setHourlyRatePrimary(e.target.value)}
+                />
+              </label>
+
+              <p className="text-right text-sm text-[#FFC700]">
+                {!hasScheduleForHourly ? (
+                  <span className="text-xs italic text-[#888888]">
+                    Preenche o horário acima para calcular o total
+                  </span>
+                ) : !hasHourlyPrimaryRate ? (
+                  'Total: €—'
+                ) : (
+                  <>Total: {hourlyModeTotal != null ? formatEuro(hourlyModeTotal) : '€—'}</>
+                )}
+              </p>
+            </div>
+          ) : null}
+
+          {paymentMode === 'flat' ? (
             <div className="space-y-3">
               <label className="block">
                 <span className="mb-1.5 block text-sm text-muted">Valor total do evento</span>
@@ -1548,7 +1733,7 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
                 </p>
               ) : null}
             </div>
-          )}
+          ) : null}
         </section>
 
         <div className="space-y-3">

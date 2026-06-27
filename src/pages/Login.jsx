@@ -84,6 +84,15 @@ export default function Login() {
             />
           </label>
 
+          <p className="text-center">
+            <Link
+              to="/forgot-password"
+              className="text-sm text-[#888888] underline"
+            >
+              Esqueceste a palavra-passe?
+            </Link>
+          </p>
+
           {error ? <div className="ds-alert-danger">{error}</div> : null}
 
           <button type="submit" disabled={busy} className="w-full ds-btn-primary">
