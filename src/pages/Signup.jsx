@@ -123,7 +123,7 @@ export default function Signup() {
               type="button"
               onClick={handleResendEmail}
               disabled={resendBusy || resendSent}
-              className={`mt-1 text-sm disabled:opacity-60 ${
+              className={`mt-1 block w-full text-center text-sm disabled:opacity-60 ${
                 resendSent
                   ? 'text-[#00FF87] no-underline'
                   : 'text-[#FFC700] underline'
@@ -136,7 +136,7 @@ export default function Signup() {
 
             <Link
               to="/login"
-              className="mt-6 inline-block text-sm text-[#888888]"
+              className="mt-3 block text-center text-sm text-[#888888]"
             >
               Voltar ao login
             </Link>
