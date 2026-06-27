@@ -1,3 +1,5 @@
+import { supabase } from './supabaseClient.js'
+
 async function readErrorMessage(response) {
   const text = await response.text()
 
@@ -63,11 +65,20 @@ async function readAnthropicSseStream(response) {
  * @returns {Promise<string>} Complete assistant text response
  */
 export async function callAnthropic(requestBody) {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+
+  if (!session) {
+    throw new Error('Sessão expirada. Faz login novamente.')
+  }
+
   const response = await fetch('/api/anthropic', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'anthropic-version': '2023-06-01',
+      Authorization: `Bearer ${session.access_token}`,
     },
     body: JSON.stringify({
       ...requestBody,
