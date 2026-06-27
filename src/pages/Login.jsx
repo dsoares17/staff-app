@@ -38,11 +38,17 @@ export default function Login() {
       if (profileError) throw profileError
 
       if (!profile) {
-        await supabase.auth.signOut()
-        setError(
-          'Esta conta não pertence à app de freelancers. Por favor regista-te.'
+        const { error: upsertError } = await supabase.from('staff_app_users').upsert(
+          {
+            id: data.user.id,
+            full_name:
+              data.user.user_metadata?.full_name || data.user.email.split('@')[0],
+            email: data.user.email,
+          },
+          { onConflict: 'id' }
         )
-        return
+
+        if (upsertError) throw upsertError
       }
 
       navigate('/jobs', { replace: true })

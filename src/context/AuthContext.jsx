@@ -14,6 +14,29 @@ async function fetchProfile(userId) {
   return data
 }
 
+async function ensureUserProfile(sessionUser) {
+  const { data: existingProfile, error: lookupError } = await supabase
+    .from('staff_app_users')
+    .select('id')
+    .eq('id', sessionUser.id)
+    .maybeSingle()
+
+  if (lookupError) throw lookupError
+  if (existingProfile) return
+
+  const { error: upsertError } = await supabase.from('staff_app_users').upsert(
+    {
+      id: sessionUser.id,
+      full_name:
+        sessionUser.user_metadata?.full_name || sessionUser.email.split('@')[0],
+      email: sessionUser.email,
+    },
+    { onConflict: 'id' }
+  )
+
+  if (upsertError) throw upsertError
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
@@ -32,17 +55,12 @@ export function AuthProvider({ children }) {
         const sessionUser = data.session?.user ?? null
 
         if (sessionUser) {
+          await ensureUserProfile(sessionUser)
           const userProfile = await fetchProfile(sessionUser.id)
           if (!active) return
 
-          if (!userProfile) {
-            await supabase.auth.signOut()
-            setUser(null)
-            setProfile(null)
-          } else {
-            setUser(sessionUser)
-            setProfile(userProfile)
-          }
+          setUser(sessionUser)
+          setProfile(userProfile)
         } else {
           setUser(null)
           setProfile(null)
@@ -61,7 +79,7 @@ export function AuthProvider({ children }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       setTimeout(async () => {
         if (!active) return
 
@@ -69,17 +87,48 @@ export function AuthProvider({ children }) {
 
         if (sessionUser) {
           try {
+            if (event === 'SIGNED_IN') {
+              await new Promise((resolve, reject) => {
+                setTimeout(async () => {
+                  try {
+                    const { data: existingProfile } = await supabase
+                      .from('staff_app_users')
+                      .select('id')
+                      .eq('id', sessionUser.id)
+                      .maybeSingle()
+
+                    if (!existingProfile) {
+                      const { error: upsertError } = await supabase
+                        .from('staff_app_users')
+                        .upsert(
+                          {
+                            id: sessionUser.id,
+                            full_name:
+                              sessionUser.user_metadata?.full_name ||
+                              sessionUser.email.split('@')[0],
+                            email: sessionUser.email,
+                          },
+                          { onConflict: 'id' }
+                        )
+
+                      if (upsertError) throw upsertError
+                    }
+
+                    resolve()
+                  } catch (err) {
+                    reject(err)
+                  }
+                }, 500)
+              })
+            } else {
+              await ensureUserProfile(sessionUser)
+            }
+
             const userProfile = await fetchProfile(sessionUser.id)
             if (!active) return
 
-            if (!userProfile) {
-              await supabase.auth.signOut()
-              setUser(null)
-              setProfile(null)
-            } else {
-              setUser(sessionUser)
-              setProfile(userProfile)
-            }
+            setUser(sessionUser)
+            setProfile(userProfile)
           } catch {
             if (!active) return
             await supabase.auth.signOut()

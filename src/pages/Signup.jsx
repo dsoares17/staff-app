@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 import { supabase } from '../lib/supabaseClient.js'
@@ -12,6 +12,9 @@ export default function Signup() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false)
+  const [resendSent, setResendSent] = useState(false)
+  const [resendBusy, setResendBusy] = useState(false)
 
   const passwordChecks = useMemo(
     () => ({
@@ -41,6 +44,32 @@ export default function Signup() {
     return <Navigate to="/jobs" replace />
   }
 
+  useEffect(() => {
+    if (!resendSent) return undefined
+
+    const timer = window.setTimeout(() => setResendSent(false), 3000)
+    return () => window.clearTimeout(timer)
+  }, [resendSent])
+
+  async function handleResendEmail() {
+    setError('')
+    setResendBusy(true)
+
+    try {
+      const { error: resendError } = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim(),
+      })
+
+      if (resendError) throw resendError
+      setResendSent(true)
+    } catch (err) {
+      setError(err.message || 'Não foi possível reenviar o email.')
+    } finally {
+      setResendBusy(false)
+    }
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
@@ -49,13 +78,21 @@ export default function Signup() {
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: email.trim(),
         password,
+        options: {
+          data: {
+            full_name: fullName.trim(),
+          },
+        },
       })
       if (signUpError) throw signUpError
       if (!data.user) throw new Error('Não foi possível criar a conta.')
-      // Set session explicitly so auth.uid() is available for RLS
-      if (data.session) {
-        await supabase.auth.setSession(data.session)
+
+      if (!data.session) {
+        setAwaitingConfirmation(true)
+        return
       }
+
+      await supabase.auth.setSession(data.session)
       const { error: insertError } = await supabase.from('staff_app_users').insert({
         id: data.user.id,
         full_name: fullName.trim(),
@@ -73,10 +110,43 @@ export default function Signup() {
   return (
     <div className="min-h-screen bg-app text-fg flex items-center justify-center p-4">
       <div className="w-full max-w-md ds-card">
-        <h1 className="text-xl font-semibold">Criar conta</h1>
-        <p className="mt-1 text-sm text-muted">Regista-te como freelancer de eventos</p>
+        {awaitingConfirmation ? (
+          <div className="text-center">
+            <h1 className="mt-8 text-lg font-semibold text-white">✉️ Verifica o teu email</h1>
+            <p className="mt-2 px-4 text-sm text-[#888888]">
+              Enviámos um email de confirmação para {email.trim()}. Clica no link para ativares a
+              tua conta.
+            </p>
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+            <p className="mt-8 text-sm text-[#888888]">Não recebeste o email?</p>
+            <button
+              type="button"
+              onClick={handleResendEmail}
+              disabled={resendBusy || resendSent}
+              className={`mt-1 text-sm disabled:opacity-60 ${
+                resendSent
+                  ? 'text-[#00FF87] no-underline'
+                  : 'text-[#FFC700] underline'
+              }`}
+            >
+              {resendSent ? 'Email reenviado ✓' : 'Reenviar email'}
+            </button>
+
+            {error ? <div className="ds-alert-danger mt-4 text-left">{error}</div> : null}
+
+            <Link
+              to="/login"
+              className="mt-6 inline-block text-sm text-[#888888]"
+            >
+              Voltar ao login
+            </Link>
+          </div>
+        ) : (
+          <>
+            <h1 className="text-xl font-semibold">Criar conta</h1>
+            <p className="mt-1 text-sm text-muted">Regista-te como freelancer de eventos</p>
+
+            <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <label className="block">
             <span className="text-sm text-muted">Nome completo</span>
             <input
@@ -161,6 +231,8 @@ export default function Signup() {
             Iniciar sessão
           </Link>
         </p>
+          </>
+        )}
       </div>
     </div>
   )
