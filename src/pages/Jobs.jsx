@@ -340,64 +340,6 @@ async function autoCompletePastJobs(jobs) {
   )
 }
 
-function isInvoiceOverdue(invoiceDate, today) {
-  const invoice = new Date(`${invoiceDate}T00:00:00`)
-  const todayDate = new Date(`${today}T00:00:00`)
-  const diffDays = Math.floor((todayDate - invoice) / (1000 * 60 * 60 * 24))
-  return diffDays > 30
-}
-
-function applyPaymentStatusToJobs(jobs, paymentIds, status) {
-  const ids = new Set(paymentIds)
-
-  return jobs.map((job) => {
-    const payment = getJobPayment(job)
-    if (!payment?.id || !ids.has(payment.id)) return job
-
-    if (Array.isArray(job.staff_app_payments)) {
-      return {
-        ...job,
-        staff_app_payments: job.staff_app_payments.map((p) =>
-          ids.has(p.id) ? { ...p, status } : p
-        ),
-      }
-    }
-
-    return {
-      ...job,
-      staff_app_payments: { ...payment, status },
-    }
-  })
-}
-
-async function autoMarkOverduePayments(jobs) {
-  const today = todayISO()
-  const paymentIds = []
-
-  for (const job of jobs) {
-    const payment = getJobPayment(job)
-    if (!payment?.id) continue
-    if (payment.status !== 'faturado') continue
-    if (!payment.invoice_date) continue
-    if (!isInvoiceOverdue(payment.invoice_date, today)) continue
-    paymentIds.push(payment.id)
-  }
-
-  if (paymentIds.length === 0) return jobs
-
-  const { error } = await supabase
-    .from('staff_app_payments')
-    .update({ status: 'em_atraso' })
-    .in('id', paymentIds)
-
-  if (error) {
-    console.error('Erro ao atualizar estados dos pagamentos:', error.message)
-    return jobs
-  }
-
-  return applyPaymentStatusToJobs(jobs, paymentIds, 'em_atraso')
-}
-
 function getJobsForDay(jobs, dayISO) {
   return jobs.filter((job) => jobOverlapsDay(job, dayISO))
 }
@@ -665,7 +607,13 @@ function ChevronDownIcon({ expanded }) {
   )
 }
 
-function ListJobCard({ job, isTodaySection, onNavigate, onPaymentUpdated }) {
+function ListJobCard({
+  job,
+  isTodaySection,
+  onNavigate,
+  onPaymentUpdated,
+  showPaymentBadge = false,
+}) {
   const [expanded, setExpanded] = useState(false)
   const [updatingPayment, setUpdatingPayment] = useState(false)
 
@@ -768,6 +716,9 @@ function ListJobCard({ job, isTodaySection, onNavigate, onPaymentUpdated }) {
           {totalLabel ? (
             <span className="text-sm font-medium text-[#FFC700]">{totalLabel}</span>
           ) : null}
+          {showPaymentBadge && payment?.status ? (
+            <PaymentStatusBadge status={payment.status} />
+          ) : null}
         </div>
 
         <div className="ml-2 flex shrink-0 items-center self-center">
@@ -811,7 +762,9 @@ function ListJobCard({ job, isTodaySection, onNavigate, onPaymentUpdated }) {
 
           {payment?.status ? (
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <PaymentStatusBadge status={payment.status} />
+              {!showPaymentBadge ? (
+                <PaymentStatusBadge status={payment.status} />
+              ) : null}
 
               {payment.status === 'por_faturar' ? (
                 <button
@@ -850,7 +803,12 @@ function ListJobCard({ job, isTodaySection, onNavigate, onPaymentUpdated }) {
   )
 }
 
-function MonthGroupedJobList({ monthGroups, onJobClick, onPaymentUpdated }) {
+function MonthGroupedJobList({
+  monthGroups,
+  onJobClick,
+  onPaymentUpdated,
+  showPaymentBadge = false,
+}) {
   return monthGroups.map((group) => (
     <div key={group.label}>
       <p className="px-4 py-2 text-xs uppercase tracking-wide text-[#888888]">{group.label}</p>
@@ -861,6 +819,7 @@ function MonthGroupedJobList({ monthGroups, onJobClick, onPaymentUpdated }) {
           isTodaySection={false}
           onNavigate={onJobClick}
           onPaymentUpdated={onPaymentUpdated}
+          showPaymentBadge={showPaymentBadge}
         />
       ))}
     </div>
@@ -979,6 +938,7 @@ function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
               monthGroups={concluidosByMonth}
               onJobClick={onJobClick}
               onPaymentUpdated={onPaymentUpdated}
+              showPaymentBadge
             />
           )
         ) : null}
@@ -1240,9 +1200,7 @@ export default function Jobs() {
         console.error('Erro ao carregar trabalhos:', error.message)
         setJobs([])
       } else {
-        const updatedJobs = await autoMarkOverduePayments(
-          await autoCompletePastJobs(data ?? [])
-        )
+        const updatedJobs = await autoCompletePastJobs(data ?? [])
         setJobs(updatedJobs)
       }
 

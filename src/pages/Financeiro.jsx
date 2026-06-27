@@ -281,7 +281,8 @@ function PagamentosPanel({ user, authLoading }) {
 
   const summary = useMemo(() => {
     let received = 0
-    let pending = 0
+    let toInvoice = 0
+    let invoiced = 0
     let overdue = 0
 
     for (const job of jobs) {
@@ -293,16 +294,20 @@ function PagamentosPanel({ user, authLoading }) {
 
       if (payment.status === 'pago') {
         received += paid > 0 ? paid : expected
-      } else if (payment.status === 'por_faturar' || payment.status === 'faturado') {
-        pending += expected
-      } else if (payment.status === 'em_atraso') {
-        overdue += expected
+      } else if (payment.status === 'por_faturar') {
+        toInvoice += expected
+      } else if (payment.status === 'faturado' || payment.status === 'em_atraso') {
+        invoiced += expected
+        if (payment.status === 'em_atraso') {
+          overdue += expected
+        }
       }
     }
 
     return {
       received: roundMoney(received) ?? 0,
-      pending: roundMoney(pending) ?? 0,
+      toInvoice: roundMoney(toInvoice) ?? 0,
+      invoiced: roundMoney(invoiced) ?? 0,
       overdue: roundMoney(overdue) ?? 0,
     }
   }, [jobs])
@@ -373,16 +378,21 @@ function PagamentosPanel({ user, authLoading }) {
               </p>
             </div>
             <div className="rounded-xl bg-surface p-3">
-              <p className="text-xs text-[#888888]">A receber</p>
+              <p className="text-xs text-[#888888]">A faturar</p>
               <p className="mt-1 text-base font-semibold text-fg">
-                {formatEuro(summary.pending)}
+                {formatEuro(summary.toInvoice)}
               </p>
             </div>
             <div className="rounded-xl bg-surface p-3">
-              <p className="text-xs text-[#888888]">Em atraso</p>
-              <p className="mt-1 text-base font-semibold text-danger">
-                {formatEuro(summary.overdue)}
+              <p className="text-xs text-[#888888]">Faturado</p>
+              <p className="mt-1 text-base font-semibold text-[#5B8DEF]">
+                {formatEuro(summary.invoiced)}
               </p>
+              {summary.overdue > 0 ? (
+                <p className="mt-0.5 text-xs text-[#FF4444]">
+                  {formatEuro(summary.overdue)} em atraso
+                </p>
+              ) : null}
             </div>
           </div>
 
