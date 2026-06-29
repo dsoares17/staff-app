@@ -50,6 +50,86 @@ function formatEuro(amount) {
   return formatEuroWhole(amount)
 }
 
+function groupJobsByMonth(jobs) {
+  const MONTH_NAMES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+  const buckets = new Map()
+
+  for (const job of jobs) {
+    const start = job.start_date
+    if (!start) continue
+    const date = new Date(`${start}T00:00:00`)
+    const year = date.getFullYear()
+    const month = date.getMonth()
+    const key = `${year}-${String(month).padStart(2, '0')}`
+
+    if (!buckets.has(key)) {
+      buckets.set(key, { year, month, label: `${MONTH_NAMES[month].toUpperCase()} ${year}`, jobs: [] })
+    }
+    buckets.get(key).jobs.push(job)
+  }
+
+  return Array.from(buckets.values()).sort((a, b) =>
+    a.year !== b.year ? b.year - a.year : b.month - a.month
+  )
+}
+
+function MonthSection({ group, defaultExpanded, onNavigate, onPaymentUpdated }) {
+  const [expanded, setExpanded] = useState(defaultExpanded)
+
+  const monthTotal = group.jobs.reduce((sum, job) => {
+    const payment = getJobPayment(job)
+    const expected = roundMoney(payment?.expected_amount) ?? 0
+    const paid = roundMoney(payment?.paid_amount) ?? 0
+    return sum + (payment?.status === 'pago' ? (paid > 0 ? paid : expected) : expected)
+  }, 0)
+
+  return (
+    <div className="mb-2">
+      <button
+        type="button"
+        onClick={() => setExpanded(current => !current)}
+        className="flex w-full items-center justify-between px-4 py-2"
+      >
+        <span className="text-xs font-medium uppercase tracking-wide text-[#888888]">
+          {group.label}
+        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-[#FFC700]">
+            {formatEuro(roundMoney(monthTotal) ?? 0)}
+          </span>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={`h-4 w-4 text-[#444444] transition-transform ${expanded ? 'rotate-180' : ''}`}
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </div>
+      </button>
+
+      {expanded ? (
+        <div>
+          {group.jobs.map((job) => (
+            <ListJobCard
+              key={job.id}
+              job={job}
+              isTodaySection={false}
+              onNavigate={onNavigate}
+              onPaymentUpdated={onPaymentUpdated}
+              showPaymentBadge
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function SummarySkeleton() {
   return <div className="h-[72px] animate-pulse rounded-xl bg-surface" />
 }
@@ -202,6 +282,13 @@ function PagamentosPanel({ user, authLoading }) {
     })
   }, [jobs, selectedFilter])
 
+  const groupedByMonth = useMemo(() => groupJobsByMonth(filteredJobs), [filteredJobs])
+
+  const currentMonthKey = (() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`
+  })()
+
   function handlePrevYear() {
     setSelectedYear((year) => year - 1)
   }
@@ -302,18 +389,20 @@ function PagamentosPanel({ user, authLoading }) {
                 Sem trabalhos para este período
               </p>
             ) : (
-              filteredJobs.map((job) => (
-                <ListJobCard
-                  key={job.id}
-                  job={job}
-                  isTodaySection={false}
-                  onNavigate={(id) => navigate(`/jobs/${id}`)}
-                  onPaymentUpdated={(paymentId, patch) => {
-                    setJobs((current) => applyPaymentPatchToJobs(current, paymentId, patch))
-                  }}
-                  showPaymentBadge
-                />
-              ))
+              groupedByMonth.map((group) => {
+                const groupKey = `${group.year}-${String(group.month).padStart(2, '0')}`
+                return (
+                  <MonthSection
+                    key={groupKey}
+                    group={group}
+                    defaultExpanded={groupKey === currentMonthKey}
+                    onNavigate={(id) => navigate(`/jobs/${id}`)}
+                    onPaymentUpdated={(paymentId, patch) => {
+                      setJobs((current) => applyPaymentPatchToJobs(current, paymentId, patch))
+                    }}
+                  />
+                )
+              })
             )}
           </div>
         </>
