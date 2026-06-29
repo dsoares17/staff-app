@@ -12,7 +12,6 @@ import AddJob from './pages/AddJob.jsx'
 import EditJob from './pages/EditJob.jsx'
 import ImportJobs from './pages/ImportJobs.jsx'
 import ImportReview from './pages/ImportReview.jsx'
-import Finances from './pages/Finances.jsx'
 import Financeiro from './pages/Financeiro.jsx'
 import Organizadores from './pages/Organizadores.jsx'
 import OrganiserDetail from './pages/OrganiserDetail.jsx'
@@ -48,7 +47,6 @@ export default function App() {
             <Route path="/organizadores" element={<Organizadores />} />
             <Route path="/organizadores/new" element={<OrganiserDetail />} />
             <Route path="/organizadores/:id" element={<OrganiserDetail />} />
-            <Route path="/finances" element={<Finances />} />
             <Route path="/expenses" element={<Expenses />} />
             <Route path="/expenses/scan" element={<ScanExpense />} />
             <Route path="/expenses/new" element={<AddExpense />} />
