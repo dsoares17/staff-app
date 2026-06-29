@@ -39,7 +39,10 @@ export default function AppShell() {
   const showHeader = shouldShowShellHeader(pathname)
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col bg-app pt-safe">
+    <div
+      className="mx-auto flex w-full max-w-[480px] flex-col bg-app"
+      style={{ minHeight: '100dvh', paddingTop: 'env(safe-area-inset-top)' }}
+    >
       {showHeader ? (
         <header className="flex items-center justify-end px-4 pb-1 pt-3">
           <button
