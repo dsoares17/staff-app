@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useLocation, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 import { formatEuro, formatEuroWhole, roundMoney } from '../lib/money.js'
 import {
@@ -308,6 +308,7 @@ function ReimbursedPill({ reimbursed, onToggle }) {
 export default function JobDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
   const [job, setJob] = useState(null)
   const [schedules, setSchedules] = useState([])
@@ -686,7 +687,7 @@ export default function JobDetail() {
       <div className="flex min-h-screen flex-col bg-app px-4 pt-4">
         <button
           type="button"
-          onClick={() => navigate('/jobs')}
+          onClick={() => navigate('/jobs', { state: { tab: location.state?.tab } })}
           className="mb-6 flex h-10 w-10 items-center justify-center rounded-full text-fg active:bg-surface"
           aria-label="Voltar"
         >
@@ -735,7 +736,7 @@ export default function JobDetail() {
       <header className="flex items-start gap-3 px-4 pb-3 pt-4">
         <button
           type="button"
-          onClick={() => navigate('/jobs')}
+          onClick={() => navigate('/jobs', { state: { tab: location.state?.tab } })}
           aria-label="Voltar"
           className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-fg active:bg-surface"
         >

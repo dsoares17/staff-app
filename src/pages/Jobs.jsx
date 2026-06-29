@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { ListJobCard, PaymentStatusBadge } from '../components/ListJobCard.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import {
@@ -500,13 +500,13 @@ function MonthGroupedJobList({
 function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
   const today = todayISO()
   const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
   const navigate = useNavigate()
+  const activeTab = searchParams.get('tab') ?? location.state?.tab ?? 'proximos'
 
   function handleJobClick(jobId) {
-    navigate(`/jobs/${jobId}`)
+    navigate(`/jobs/${jobId}`, { state: { tab: activeTab } })
   }
-
-  const activeTab = searchParams.get('tab') ?? 'proximos'
 
   const proximosGroups = useMemo(() => getProximosGroups(jobs, today), [jobs, today])
   const concluidosJobs = useMemo(() => getConcluidosTabJobs(jobs, today), [jobs, today])
