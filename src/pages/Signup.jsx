@@ -59,6 +59,9 @@ export default function Signup() {
       const { error: resendError } = await supabase.auth.resend({
         type: 'signup',
         email: email.trim(),
+        options: {
+          emailRedirectTo: 'https://erario.vercel.app/login',
+        },
       })
 
       if (resendError) throw resendError
@@ -82,6 +85,7 @@ export default function Signup() {
           data: {
             full_name: fullName.trim(),
           },
+          emailRedirectTo: 'https://erario.vercel.app/login',
         },
       })
       if (signUpError) throw signUpError
