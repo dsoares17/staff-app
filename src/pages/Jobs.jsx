@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ListJobCard, PaymentStatusBadge } from '../components/ListJobCard.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import {
@@ -499,7 +499,8 @@ function MonthGroupedJobList({
 
 function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
   const today = todayISO()
-  const [activeTab, setActiveTab] = useState('proximos')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = searchParams.get('tab') ?? 'proximos'
 
   const proximosGroups = useMemo(() => getProximosGroups(jobs, today), [jobs, today])
   const concluidosJobs = useMemo(() => getConcluidosTabJobs(jobs, today), [jobs, today])
@@ -519,7 +520,7 @@ function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => setSearchParams({ tab: tab.id }, { replace: true })}
               className={`flex-1 py-2 text-sm ${
                 activeTab === tab.id
                   ? 'border-b-2 border-[#FFC700] font-medium text-[#FFC700]'
@@ -834,6 +835,8 @@ function JobsCalendar({ jobs, onJobClick }) {
 export default function Jobs() {
   const { user, loading: authLoading } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const activeTab = searchParams.get('tab') ?? 'proximos'
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
@@ -934,15 +937,17 @@ export default function Jobs() {
       <header className="flex items-center justify-between pb-2 pt-4">
         <h1 className="text-xl font-semibold">Os meus trabalhos</h1>
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={handleExportCalendar}
-            disabled={exporting || authLoading}
-            aria-label="Exportar calendário"
-            className="flex h-10 w-10 items-center justify-center rounded-full transition-colors active:bg-surface disabled:opacity-60"
-          >
-            <ExportIcon loading={exporting} />
-          </button>
+          {activeTab === 'calendario' ? (
+            <button
+              type="button"
+              onClick={handleExportCalendar}
+              disabled={exporting || authLoading}
+              aria-label="Exportar calendário"
+              className="flex h-10 w-10 items-center justify-center rounded-full transition-colors active:bg-surface disabled:opacity-60"
+            >
+              <ExportIcon loading={exporting} />
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={handleAddJob}
