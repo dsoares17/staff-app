@@ -500,6 +500,12 @@ function MonthGroupedJobList({
 function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
   const today = todayISO()
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
+
+  function handleJobClick(jobId) {
+    navigate(`/jobs/${jobId}`)
+  }
+
   const activeTab = searchParams.get('tab') ?? 'proximos'
 
   const proximosGroups = useMemo(() => getProximosGroups(jobs, today), [jobs, today])
@@ -562,7 +568,7 @@ function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
                           key={job.id}
                           job={job}
                           isTodaySection={false}
-                          onNavigate={onJobClick}
+                          onNavigate={handleJobClick}
                           onPaymentUpdated={onPaymentUpdated}
                         />
                       ))
@@ -588,7 +594,7 @@ function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
                       key={job.id}
                       job={job}
                       isTodaySection={section.id === 'hoje'}
-                      onNavigate={onJobClick}
+                      onNavigate={handleJobClick}
                       onPaymentUpdated={onPaymentUpdated}
                     />
                   ))}
@@ -599,7 +605,7 @@ function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
         ) : null}
 
         {activeTab === 'calendario' ? (
-          <JobsCalendar jobs={jobs} onJobClick={onJobClick} />
+          <JobsCalendar jobs={jobs} onJobClick={handleJobClick} />
         ) : null}
 
         {activeTab === 'concluidos' ? (
@@ -608,7 +614,7 @@ function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
           ) : (
             <MonthGroupedJobList
               monthGroups={concluidosByMonth}
-              onJobClick={onJobClick}
+              onJobClick={handleJobClick}
               onPaymentUpdated={onPaymentUpdated}
               showPaymentBadge
             />
