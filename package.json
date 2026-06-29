@@ -15,6 +15,7 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router-dom": "^6.30.4",
+    "tailwindcss-safe-area": "^0.8.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

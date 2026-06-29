@@ -73,7 +73,7 @@ export default function BottomNav({ onImportPress }) {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-50 border-t bg-surface"
+      className="fixed bottom-0 left-0 right-0 z-50 border-t bg-surface pb-safe"
       style={{ borderColor: 'var(--color-border)' }}
     >
       <div className="mx-auto flex w-full max-w-[480px]">

@@ -39,7 +39,7 @@ export default function AppShell() {
   const showHeader = shouldShowShellHeader(pathname)
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col bg-app">
+    <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col bg-app pt-safe">
       {showHeader ? (
         <header className="flex items-center justify-end px-4 pb-1 pt-3">
           <button
@@ -53,7 +53,7 @@ export default function AppShell() {
         </header>
       ) : null}
 
-      <main className="flex-1 overflow-y-auto pb-20">
+      <main className="flex-1 overflow-y-auto pb-[calc(5rem+env(safe-area-inset-bottom))]">
         <Outlet />
       </main>
 
