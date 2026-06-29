@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
+import EmptyState from '../components/EmptyState.jsx'
 import { supabase } from '../lib/supabaseClient.js'
 
 function CardSkeleton() {
@@ -116,11 +117,39 @@ export default function Organizadores() {
           <CardSkeleton />
         </div>
       ) : filteredOrganisers.length === 0 ? (
-        <p className="px-4 py-12 text-center text-sm text-[#888888]">
-          {organisers.length === 0
-            ? 'Ainda não tens organizadores. Adiciona o teu primeiro cliente.'
-            : 'Nenhum organizador encontrado.'}
-        </p>
+        organisers.length === 0 ? (
+          <EmptyState
+            icon={
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-6 w-6"
+              >
+                <path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4" />
+              </svg>
+            }
+            headline="A tua base de clientes"
+            subtext="Guarda os contactos dos organizadores com quem trabalhas. Quando criares um trabalho, podes associá-lo diretamente a um organizador."
+            actions={
+              <button
+                type="button"
+                onClick={() => navigate('/organizadores/new')}
+                className="w-full rounded-xl bg-accent py-3 text-sm font-semibold text-[#000000]"
+              >
+                Adicionar organizador
+              </button>
+            }
+          />
+        ) : (
+          <p className="px-4 py-12 text-center text-sm text-[#888888]">
+            Nenhum organizador encontrado.
+          </p>
+        )
       ) : (
         filteredOrganisers.map((organiser) => {
           const count = jobCounts[organiser.id] ?? 0

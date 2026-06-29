@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ListJobCard } from '../components/ListJobCard.jsx'
+import EmptyState from '../components/EmptyState.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { applyPaymentPatchToJobs, getJobPayment } from '../lib/jobUtils.js'
 import { formatEuroWhole, roundMoney } from '../lib/money.js'
@@ -384,7 +385,35 @@ function PagamentosPanel({ user, authLoading }) {
           </div>
 
           <div className="pb-4">
-            {filteredJobs.length === 0 ? (
+            {jobs.length === 0 ? (
+              <EmptyState
+                icon={
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-6 w-6"
+                  >
+                    <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                  </svg>
+                }
+                headline="O teu resumo financeiro"
+                subtext="Quando adicionares trabalhos, vês aqui o que já recebeste, o que está por faturar e o que já faturaste — organizado por mês."
+                actions={
+                  <button
+                    type="button"
+                    onClick={() => navigate('/jobs/new')}
+                    className="w-full rounded-xl bg-accent py-3 text-sm font-semibold text-[#000000]"
+                  >
+                    Adicionar primeiro trabalho
+                  </button>
+                }
+              />
+            ) : filteredJobs.length === 0 ? (
               <p className="py-8 text-center text-sm text-[#888888]">
                 Sem trabalhos para este período
               </p>
@@ -412,6 +441,7 @@ function PagamentosPanel({ user, authLoading }) {
 }
 
 function DespesasPanel({ user, authLoading }) {
+  const navigate = useNavigate()
   const [expenses, setExpenses] = useState([])
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
@@ -744,9 +774,36 @@ function DespesasPanel({ user, authLoading }) {
           ) : null}
 
           {expenses.length === 0 ? (
-            <p className="px-4 py-8 text-center text-sm text-[#888888]">
-              Ainda não tens despesas registadas.
-            </p>
+            <EmptyState
+              icon={
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-6 w-6"
+                >
+                  <rect x="5" y="2" width="14" height="20" rx="2" />
+                  <line x1="9" y1="7" x2="15" y2="7" />
+                  <line x1="9" y1="11" x2="15" y2="11" />
+                  <line x1="9" y1="15" x2="13" y2="15" />
+                </svg>
+              }
+              headline="Regista as tuas despesas"
+              subtext="Guarda despesas por trabalho, digitaliza recibos com a câmara e acompanha o que está por reembolsar."
+              actions={
+                <button
+                  type="button"
+                  onClick={() => navigate('/expenses/new')}
+                  className="w-full rounded-xl bg-accent py-3 text-sm font-semibold text-[#000000]"
+                >
+                  Adicionar despesa
+                </button>
+              }
+            />
           ) : groupedExpenses.length === 0 ? (
             unassignedExpenses.length === 0 ? null : (
               <p className="px-4 pb-4 text-center text-sm text-[#888888]">
