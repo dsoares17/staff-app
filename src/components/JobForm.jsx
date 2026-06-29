@@ -364,6 +364,33 @@ function isMultiDayEvent(startDate, endDate) {
   return Boolean(startDate && endDate && endDate !== startDate)
 }
 
+function countWeekdays(startDateISO, endDateISO) {
+  if (!startDateISO || !endDateISO) return 0
+  const start = new Date(`${startDateISO}T00:00:00`)
+  const end = new Date(`${endDateISO}T00:00:00`)
+  let count = 0
+  const current = new Date(start)
+  while (current <= end) {
+    const day = current.getDay()
+    if (day !== 0 && day !== 6) count++
+    current.setDate(current.getDate() + 1)
+  }
+  return count
+}
+
+function rangeContainsWeekend(startDateISO, endDateISO) {
+  if (!startDateISO || !endDateISO) return false
+  const start = new Date(`${startDateISO}T00:00:00`)
+  const end = new Date(`${endDateISO}T00:00:00`)
+  const current = new Date(start)
+  while (current <= end) {
+    const day = current.getDay()
+    if (day === 0 || day === 6) return true
+    current.setDate(current.getDate() + 1)
+  }
+  return false
+}
+
 function enumerateDateRange(startDate, endDate) {
   const dates = []
   const start = new Date(`${startDate}T00:00:00`)
@@ -640,6 +667,7 @@ export function jobToFormValues(job) {
     status: normalizeFormStatus(job.status),
     paymentMode,
     workDays: numberToField(job.work_days),
+    excludeWeekends: Boolean(job.exclude_weekends),
     workRate: numberToField(job.work_rate),
     flatTotal: numberToField(job.flat_total),
     hourlyRatePrimary: numberToField(job.hourly_rate_primary),
@@ -700,6 +728,7 @@ export function buildJobPayload(formState) {
       notes: formState.notes.trim() || null,
       status: formState.status,
       work_days: formState.paymentMode === 'daily' ? parsedWorkDays : null,
+      exclude_weekends: formState.excludeWeekends,
       work_rate: formState.paymentMode === 'daily' ? roundMoney(parsedWorkRate) : null,
       flat_total: formState.paymentMode === 'flat' ? parsedFlatTotal : null,
       hourly_rate_primary:
@@ -753,6 +782,7 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
   const [notes, setNotes] = useState('')
   const [paymentMode, setPaymentMode] = useState('daily')
   const [workDays, setWorkDays] = useState('')
+  const [excludeWeekends, setExcludeWeekends] = useState(false)
   const [workRate, setWorkRate] = useState('')
   const [flatTotal, setFlatTotal] = useState('')
   const [hourlyRatePrimary, setHourlyRatePrimary] = useState('')
@@ -820,6 +850,23 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
   }
 
   const showMultiDaySchedule = !isRecurring && isMultiDayEvent(startDate, endDate)
+
+  const showExcludeWeekendsToggle =
+    Boolean(endDate && endDate > startDate && rangeContainsWeekend(startDate, endDate)) &&
+    (!isAddMode || !isRecurring)
+
+  useEffect(() => {
+    if (
+      !excludeWeekends ||
+      !startDate ||
+      !endDate ||
+      !rangeContainsWeekend(startDate, endDate)
+    ) {
+      return
+    }
+
+    setWorkDays(String(countWeekdays(startDate, endDate)))
+  }, [excludeWeekends, startDate, endDate])
 
   useEffect(() => {
     if (isRecurring || scheduleMode !== 'perDay') return undefined
@@ -916,6 +963,7 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
     setNotes(values.notes)
     setPaymentMode(values.paymentMode)
     setWorkDays(values.workDays)
+    setExcludeWeekends(values.excludeWeekends)
     setWorkRate(values.workRate)
     setFlatTotal(values.flatTotal)
     setHourlyRatePrimary(values.hourlyRatePrimary)
@@ -1245,6 +1293,7 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
     setLocation(values.location)
     setPaymentMode(values.paymentMode)
     setWorkDays(values.workDays)
+    setExcludeWeekends(values.excludeWeekends)
     setWorkRate(values.workRate)
     setFlatTotal(values.flatTotal)
     setHourlyRatePrimary(values.hourlyRatePrimary)
@@ -1311,6 +1360,7 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
       notes,
       paymentMode,
       workDays,
+      excludeWeekends,
       workRate,
       flatTotal,
       hourlyRatePrimary,
@@ -1494,6 +1544,25 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
           </div>
         ) : null}
 
+        {showExcludeWeekendsToggle ? (
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted">Excluir fins de semana</span>
+            <button
+              type="button"
+              onClick={() => setExcludeWeekends((current) => !current)}
+              className={`relative h-6 w-11 rounded-full transition-colors ${
+                excludeWeekends ? 'bg-accent' : 'bg-[#333333]'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                  excludeWeekends ? 'translate-x-5' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+          </div>
+        ) : null}
+
         {isAddMode ? (
           <ToggleSwitch
             checked={isRecurring}
@@ -1672,14 +1741,20 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
                 <label className="block">
                   <span className="mb-1.5 block text-sm text-muted">Dias de trabalho</span>
                   <input
-                    className={fieldClass}
+                    className={`${fieldClass} ${excludeWeekends ? 'cursor-not-allowed opacity-50' : ''}`}
                     style={fieldStyle}
                     type="number"
                     min="0"
                     step="1"
                     value={workDays}
                     onChange={(e) => setWorkDays(e.target.value)}
+                    disabled={excludeWeekends}
                   />
+                  {excludeWeekends ? (
+                    <p className="mt-1 text-xs text-[#888888]">
+                      Calculado automaticamente (dias úteis)
+                    </p>
+                  ) : null}
                 </label>
 
                 <label className="block">
