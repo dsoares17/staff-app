@@ -112,7 +112,10 @@ export default function Signup() {
   }
 
   return (
-    <div className="min-h-screen bg-app text-fg flex items-center justify-center p-4">
+    <div
+      className="min-h-screen bg-app text-fg flex items-center justify-center p-4"
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
+    >
       <div className="w-full max-w-md ds-card">
         {awaitingConfirmation ? (
           <div className="text-center">

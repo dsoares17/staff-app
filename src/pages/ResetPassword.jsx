@@ -76,7 +76,10 @@ export default function ResetPassword() {
 
   if (recoveryState === 'checking') {
     return (
-      <div className="min-h-screen bg-app px-4 pt-4 text-fg">
+      <div
+        className="min-h-screen bg-app px-4 pt-4 text-fg"
+        style={{ paddingTop: 'env(safe-area-inset-top)' }}
+      >
         <p className="text-sm text-[#888888]">A verificar link…</p>
       </div>
     )
@@ -84,7 +87,10 @@ export default function ResetPassword() {
 
   if (recoveryState === 'invalid') {
     return (
-      <div className="min-h-screen bg-app px-4 pb-12 pt-4 text-fg">
+      <div
+        className="min-h-screen bg-app px-4 pb-12 pt-4 text-fg"
+        style={{ paddingTop: 'env(safe-area-inset-top)' }}
+      >
         <h1 className="text-xl font-semibold">Nova palavra-passe</h1>
         <p className="mt-4 text-sm text-[#888888]">
           Este link expirou ou já foi utilizado. Pede um novo link.
@@ -100,7 +106,10 @@ export default function ResetPassword() {
   }
 
   return (
-    <div className="min-h-screen bg-app px-4 pb-12 pt-4 text-fg">
+    <div
+      className="min-h-screen bg-app px-4 pb-12 pt-4 text-fg"
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
+    >
       <h1 className="text-xl font-semibold">Nova palavra-passe</h1>
 
       {success ? (

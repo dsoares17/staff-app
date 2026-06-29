@@ -47,7 +47,7 @@ export default function ForgotPassword() {
   }
 
   return (
-    <div className="min-h-screen bg-app text-fg">
+    <div className="min-h-screen bg-app text-fg" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
       <header className="flex items-center gap-3 px-4 pb-2 pt-4">
         <button
           type="button"

@@ -60,7 +60,10 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-app text-fg flex items-center justify-center p-4">
+    <div
+      className="min-h-screen bg-app text-fg flex items-center justify-center p-4"
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
+    >
       <div className="w-full max-w-md ds-card">
         <h1 className="text-xl font-semibold">Iniciar sessão</h1>
         <p className="mt-1 text-sm text-muted">Acede à tua conta de staff</p>
