@@ -1,18 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { ListJobCard } from '../components/ListJobCard.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
+import { applyPaymentPatchToJobs, getJobPayment } from '../lib/jobUtils.js'
 import { formatEuroWhole, roundMoney } from '../lib/money.js'
 import { supabase } from '../lib/supabaseClient.js'
 
 const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 const CURRENT_YEAR = new Date().getFullYear()
-
-const PAYMENT_STATUS_CONFIG = {
-  por_faturar: { label: 'Por faturar', bg: '#222222', text: '#888888' },
-  faturado: { label: 'Faturado', bg: 'rgba(91, 141, 239, 0.2)', text: '#5B8DEF' },
-  pago: { label: 'Pago', bg: 'rgba(0, 255, 135, 0.2)', text: '#00FF87' },
-  em_atraso: { label: 'Em atraso', bg: 'rgba(255, 68, 68, 0.2)', text: '#FF4444' },
-}
 
 const PAYMENT_FILTER_OPTIONS = [
   { value: 'all', label: 'Todos' },
@@ -29,105 +24,6 @@ const EXPENSE_CATEGORIES = [
   { value: 'equipamento', label: 'Equipamento' },
   { value: 'outro', label: 'Outro' },
 ]
-
-function getJobPayment(job) {
-  const payments = job.staff_app_payments
-  if (!payments) return null
-  if (Array.isArray(payments)) return payments[0] ?? null
-  return payments
-}
-
-function todayISO() {
-  const d = new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
-function isInvoiceOverdue(invoiceDate, today) {
-  const invoice = new Date(`${invoiceDate}T00:00:00`)
-  const todayDate = new Date(`${today}T00:00:00`)
-  const diffDays = Math.floor((todayDate - invoice) / (1000 * 60 * 60 * 24))
-  return diffDays > 30
-}
-
-function applyPaymentStatusToJobs(jobs, paymentIds, status) {
-  const ids = new Set(paymentIds)
-
-  return jobs.map((job) => {
-    const payment = getJobPayment(job)
-    if (!payment?.id || !ids.has(payment.id)) return job
-
-    if (Array.isArray(job.staff_app_payments)) {
-      return {
-        ...job,
-        staff_app_payments: job.staff_app_payments.map((p) =>
-          ids.has(p.id) ? { ...p, status } : p
-        ),
-      }
-    }
-
-    return {
-      ...job,
-      staff_app_payments: { ...payment, status },
-    }
-  })
-}
-
-async function autoMarkOverduePayments(jobs) {
-  const today = todayISO()
-  const paymentIds = []
-
-  for (const job of jobs) {
-    const payment = getJobPayment(job)
-    if (!payment?.id) continue
-    if (payment.status !== 'faturado') continue
-    if (!payment.invoice_date) continue
-    if (!isInvoiceOverdue(payment.invoice_date, today)) continue
-    paymentIds.push(payment.id)
-  }
-
-  if (paymentIds.length === 0) return jobs
-
-  const { error } = await supabase
-    .from('staff_app_payments')
-    .update({ status: 'em_atraso' })
-    .in('id', paymentIds)
-
-  if (error) {
-    console.error('Erro ao atualizar estados dos pagamentos:', error.message)
-    return jobs
-  }
-
-  return applyPaymentStatusToJobs(jobs, paymentIds, 'em_atraso')
-}
-
-function calcJobTotal(job) {
-  if (job.flat_total != null && Number(job.flat_total) > 0) {
-    return roundMoney(job.flat_total)
-  }
-
-  const work = roundMoney((job.work_days ?? 0) * (job.work_rate ?? 0)) ?? 0
-  const travel =
-    roundMoney((job.transport_travel_days ?? 0) * (job.transport_travel_rate ?? 0)) ?? 0
-  const total = roundMoney(work + travel)
-
-  if (total != null && total > 0) return total
-
-  const payment = getJobPayment(job)
-  if (payment?.expected_amount != null && Number(payment.expected_amount) > 0) {
-    return roundMoney(payment.expected_amount)
-  }
-
-  return null
-}
-
-function formatMonthYear(startDate) {
-  if (!startDate) return null
-  const date = new Date(`${startDate}T00:00:00`)
-  return `${MONTHS[date.getMonth()]} ${date.getFullYear()}`
-}
 
 function formatExpenseDate(date) {
   if (!date) return null
@@ -180,20 +76,6 @@ function ChevronIcon({ direction }) {
         <polyline points="9 18 15 12 9 6" />
       )}
     </svg>
-  )
-}
-
-function PaymentStatusBadge({ status }) {
-  const config = PAYMENT_STATUS_CONFIG[status]
-  if (!config) return null
-
-  return (
-    <span
-      className="inline-block rounded-full px-2 py-0.5 text-xs font-medium"
-      style={{ backgroundColor: config.bg, color: config.text }}
-    >
-      {config.label}
-    </span>
   )
 }
 
@@ -250,8 +132,8 @@ function PagamentosPanel({ user, authLoading }) {
       const { data, error } = await supabase
         .from('staff_app_jobs')
         .select(
-          `id, event_name, start_date, work_days, work_rate, flat_total,
-          transport_travel_days, transport_travel_rate,
+          `id, event_name, start_date, end_date, start_time, end_time, location, role, status, notes, organiser_name,
+          work_days, work_rate, flat_total, transport_travel_days, transport_travel_rate,
           staff_app_payments(id, status, expected_amount, paid_amount, invoice_date)`
         )
         .eq('staff_app_user_id', user.id)
@@ -265,8 +147,7 @@ function PagamentosPanel({ user, authLoading }) {
         console.error('Erro ao carregar finanças:', error.message)
         setJobs([])
       } else {
-        const updatedJobs = await autoMarkOverduePayments(data ?? [])
-        setJobs(updatedJobs)
+        setJobs(data ?? [])
       }
 
       setLoading(false)
@@ -415,38 +296,24 @@ function PagamentosPanel({ user, authLoading }) {
             ))}
           </div>
 
-          <div className="px-4 pb-4">
+          <div className="pb-4">
             {filteredJobs.length === 0 ? (
               <p className="py-8 text-center text-sm text-[#888888]">
                 Sem trabalhos para este período
               </p>
             ) : (
-              filteredJobs.map((job) => {
-                const payment = getJobPayment(job)
-                const amount = calcJobTotal(job) ?? roundMoney(payment?.expected_amount) ?? 0
-                const dateLabel = formatMonthYear(job.start_date)
-
-                return (
-                  <button
-                    key={job.id}
-                    type="button"
-                    onClick={() => navigate(`/jobs/${job.id}`)}
-                    className="mb-2 flex w-full items-center justify-between rounded-xl bg-surface px-4 py-3 text-left transition-opacity active:opacity-80"
-                  >
-                    <div className="min-w-0 pr-3">
-                      <p className="truncate text-sm font-medium text-fg">{job.event_name}</p>
-                      {dateLabel ? (
-                        <p className="mt-0.5 text-xs text-[#888888]">{dateLabel}</p>
-                      ) : null}
-                    </div>
-
-                    <div className="flex shrink-0 flex-col items-end gap-1.5">
-                      <p className="text-sm font-medium text-fg">{formatEuro(amount)}</p>
-                      {payment?.status ? <PaymentStatusBadge status={payment.status} /> : null}
-                    </div>
-                  </button>
-                )
-              })
+              filteredJobs.map((job) => (
+                <ListJobCard
+                  key={job.id}
+                  job={job}
+                  isTodaySection={false}
+                  onNavigate={(id) => navigate(`/jobs/${id}`)}
+                  onPaymentUpdated={(paymentId, patch) => {
+                    setJobs((current) => applyPaymentPatchToJobs(current, paymentId, patch))
+                  }}
+                  showPaymentBadge
+                />
+              ))
             )}
           </div>
         </>
