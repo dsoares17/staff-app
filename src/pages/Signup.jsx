@@ -40,16 +40,16 @@ export default function Signup() {
     { key: 'hasUppercase', label: 'Pelo menos uma letra maiúscula' },
   ]
 
-  if (!loading && user) {
-    return <Navigate to="/jobs" replace />
-  }
-
   useEffect(() => {
     if (!resendSent) return undefined
 
     const timer = window.setTimeout(() => setResendSent(false), 3000)
     return () => window.clearTimeout(timer)
   }, [resendSent])
+
+  if (!loading && user) {
+    return <Navigate to="/jobs" replace />
+  }
 
   async function handleResendEmail() {
     setError('')
