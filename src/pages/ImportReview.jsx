@@ -40,6 +40,10 @@ function calcWorkDaysFromDates(startDate, endDate) {
 }
 
 function calcExpectedAmount(card) {
+  if (card.paymentMode === 'hourly') {
+    return roundMoney(parseNumber(card.hourlyRatePrimary))
+  }
+
   const parsedRate = parseNumber(card.rate)
   if (parsedRate == null || parsedRate <= 0) return null
 
@@ -140,8 +144,12 @@ function parsedJobToCard(job) {
     location: job.location ?? '',
     startDate: job.start_date ?? '',
     endDate: job.end_date ?? '',
-    paymentMode: job.payment_mode === 'flat' ? 'flat' : 'daily',
+    startTime: job.start_time ?? '',
+    endTime: job.end_time ?? '',
+    paymentMode: job.payment_mode === 'flat' ? 'flat' : job.payment_mode === 'hourly' ? 'hourly' : 'daily',
     rate: job.rate != null && Number(job.rate) > 0 ? String(job.rate) : '',
+    hourlyRatePrimary:
+      job.hourly_rate_primary != null ? String(job.hourly_rate_primary) : '',
     paymentStatus,
     notes: job.notes ?? '',
   }
@@ -257,9 +265,32 @@ function ReviewCard({ card, onChange }) {
           </label>
         </div>
 
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="mb-1 block text-xs text-[#888888]">Hora de início</span>
+            <input
+              className={fieldClass}
+              style={fieldStyle}
+              type="time"
+              value={card.startTime}
+              onChange={(e) => onChange({ startTime: e.target.value })}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs text-[#888888]">Hora de fim</span>
+            <input
+              className={fieldClass}
+              style={fieldStyle}
+              type="time"
+              value={card.endTime}
+              onChange={(e) => onChange({ endTime: e.target.value })}
+            />
+          </label>
+        </div>
+
         <div>
           <span className="mb-1.5 block text-xs text-[#888888]">Remuneração</span>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <button
               type="button"
               onClick={() => onChange({ paymentMode: 'daily' })}
@@ -282,15 +313,36 @@ function ReviewCard({ card, onChange }) {
             >
               Valor total
             </button>
+            <button
+              type="button"
+              onClick={() => onChange({ paymentMode: 'hourly' })}
+              className={`rounded-full px-2 py-1.5 text-xs font-medium transition-colors ${
+                card.paymentMode === 'hourly'
+                  ? 'bg-accent text-[#000000]'
+                  : 'bg-[#222222] text-[#888888]'
+              }`}
+            >
+              Por hora
+            </button>
           </div>
         </div>
 
-        <label className="block">
-          <span className="mb-1 block text-xs text-[#888888]">
-            {card.paymentMode === 'daily' ? 'Valor/dia' : 'Valor total'}
-          </span>
-          <EuroInput value={card.rate} onChange={(e) => onChange({ rate: e.target.value })} />
-        </label>
+        {card.paymentMode === 'hourly' ? (
+          <label className="block">
+            <span className="mb-1 block text-xs text-[#888888]">Valor/hora</span>
+            <EuroInput
+              value={card.hourlyRatePrimary}
+              onChange={(e) => onChange({ hourlyRatePrimary: e.target.value })}
+            />
+          </label>
+        ) : (
+          <label className="block">
+            <span className="mb-1 block text-xs text-[#888888]">
+              {card.paymentMode === 'daily' ? 'Valor/dia' : 'Valor total'}
+            </span>
+            <EuroInput value={card.rate} onChange={(e) => onChange({ rate: e.target.value })} />
+          </label>
+        )}
       </div>
     </div>
   )
@@ -367,11 +419,15 @@ export default function ImportReview() {
       location: card.location.trim() || null,
       start_date: card.startDate,
       end_date: card.endDate || null,
+      start_time: card.startTime || null,
+      end_time: card.endTime || null,
       status: 'confirmed',
       notes: card.notes.trim() || null,
       work_days: card.paymentMode === 'daily' ? workDays : null,
       work_rate: card.paymentMode === 'daily' ? roundMoney(parsedRate) : null,
       flat_total: card.paymentMode === 'flat' ? parsedRate : null,
+      hourly_rate_primary:
+        card.paymentMode === 'hourly' ? parseNumber(card.hourlyRatePrimary) : null,
       hourly_rate: null,
       hours: null,
       meals_type: 'none',
