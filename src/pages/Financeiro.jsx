@@ -51,6 +51,33 @@ function formatEuro(amount) {
   return formatEuroWhole(amount)
 }
 
+function calcJobTotal(job) {
+  if (job.flat_total != null && Number(job.flat_total) > 0) {
+    return roundMoney(job.flat_total)
+  }
+
+  if (job.hourly_rate_primary != null && Number(job.hourly_rate_primary) > 0) {
+    const payment = getJobPayment(job)
+    if (payment?.expected_amount != null && Number(payment.expected_amount) > 0) {
+      return roundMoney(payment.expected_amount)
+    }
+  }
+
+  const work = roundMoney((job.work_days ?? 0) * (job.work_rate ?? 0)) ?? 0
+  const travel =
+    roundMoney((job.transport_travel_days ?? 0) * (job.transport_travel_rate ?? 0)) ?? 0
+  const total = roundMoney(work + travel)
+
+  if (total != null && total > 0) return total
+
+  const payment = getJobPayment(job)
+  if (payment?.expected_amount != null && Number(payment.expected_amount) > 0) {
+    return roundMoney(payment.expected_amount)
+  }
+
+  return null
+}
+
 function groupJobsByMonth(jobs) {
   const MONTH_NAMES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
   const buckets = new Map()
@@ -214,7 +241,7 @@ function PagamentosPanel({ user, authLoading }) {
         .from('staff_app_jobs')
         .select(
           `id, event_name, start_date, end_date, start_time, end_time, location, role, status, notes, organiser_name,
-          work_days, work_rate, flat_total, transport_travel_days, transport_travel_rate,
+          work_days, work_rate, flat_total, hourly_rate_primary, transport_travel_days, transport_travel_rate,
           staff_app_payments(id, status, expected_amount, paid_amount, invoice_date)`
         )
         .eq('staff_app_user_id', user.id)

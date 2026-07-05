@@ -66,6 +66,14 @@ export function getJobTotal(job) {
     return roundMoney(Number(job.flat_total) + hourlyExtra)
   }
 
+  if (job.hourly_rate_primary != null && Number(job.hourly_rate_primary) > 0) {
+    const payment = getJobPayment(job)
+    const expected = payment?.expected_amount
+    if (expected != null && Number(expected) > 0) {
+      return roundMoney(Number(expected))
+    }
+  }
+
   const work = roundMoney((job.work_days ?? 0) * (job.work_rate ?? 0)) ?? 0
   const travel =
     roundMoney((job.transport_travel_days ?? 0) * (job.transport_travel_rate ?? 0)) ?? 0
