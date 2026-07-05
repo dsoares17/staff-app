@@ -119,14 +119,16 @@ function buildImportPrompt(text) {
   location: string ou null,
   start_date: string formato YYYY-MM-DD,
   end_date: string formato YYYY-MM-DD ou null se for o mesmo dia,
-  payment_mode: 'daily' ou 'flat',
-  rate: number (valor por dia se payment_mode for 'daily', ou valor total se for 'flat'),
+  payment_mode: 'daily' | 'flat' | 'hourly',
+  rate: number ou null (valor por dia se payment_mode for 'daily', ou valor total se for 'flat'),
+  hourly_rate_primary: number ou null (valor por hora, apenas quando payment_mode for 'hourly'),
   notes: string ou null
 }
 
 REGRAS IMPORTANTES:
-- Se o valor mencionado tiver indicação explícita de ser por dia (ex: '140/dia', '140 por dia', '140€ diários'), usa payment_mode 'daily'.
-- Se não houver indicação explícita de ser por dia, assume payment_mode 'flat' (valor total do trabalho).
+- Se o valor tiver indicação explícita de ser por hora (ex: '12€/hora', '12/h', '15€ hora'), usa payment_mode 'hourly' e coloca o valor em hourly_rate_primary. Neste caso, rate deve ser null.
+- Se o valor tiver indicação explícita de ser por dia (ex: '140/dia', '140 por dia'), usa payment_mode 'daily' e coloca o valor em rate.
+- Se não houver indicação explícita, assume payment_mode 'flat' e coloca o valor em rate.
 - Se não conseguires determinar uma data específica, usa null nesse campo e não inventes datas.
 - O ano atual é ${CURRENT_YEAR}. Se não houver ano mencionado no texto, assume o ano atual.
 - Não inventes informação que não esteja no texto.
@@ -150,15 +152,17 @@ function buildFileImportPrompt(text, { currentYearOnly = false } = {}) {
   location: string ou null,
   start_date: string formato YYYY-MM-DD,
   end_date: string formato YYYY-MM-DD ou null se for o mesmo dia,
-  payment_mode: 'daily' ou 'flat',
+  payment_mode: 'daily' | 'flat' | 'hourly',
   rate: number ou null,
+  hourly_rate_primary: number ou null (valor por hora, apenas quando payment_mode for 'hourly'),
   payment_status: 'pago' | 'por_faturar' | 'em_atraso' | null,
   notes: string ou null
 }
 ${yearFilterInstruction}
 REGRAS IMPORTANTES:
-- Se o valor mencionado tiver indicação explícita de ser por dia (ex: '140/dia', '140 por dia', '140€ diários'), usa payment_mode 'daily'.
-- Se não houver indicação explícita de ser por dia, assume payment_mode 'flat' (valor total do trabalho).
+- Se o valor tiver indicação explícita de ser por hora (ex: '12€/hora', '12/h', '15€ hora'), usa payment_mode 'hourly' e coloca o valor em hourly_rate_primary. Neste caso, rate deve ser null.
+- Se o valor tiver indicação explícita de ser por dia (ex: '140/dia', '140 por dia'), usa payment_mode 'daily' e coloca o valor em rate.
+- Se não houver indicação explícita, assume payment_mode 'flat' e coloca o valor em rate.
 - Se não conseguires determinar uma data específica, usa null nesse campo e não inventes datas.
 - O ano atual é ${CURRENT_YEAR}. Se não houver ano mencionado no texto, assume o ano atual.
 - Não inventes informação que não esteja no texto.
@@ -184,13 +188,16 @@ function buildPhotoImportPrompt() {
   location: string ou null,
   start_date: string formato YYYY-MM-DD,
   end_date: string formato YYYY-MM-DD ou null,
-  payment_mode: 'daily' ou 'flat',
+  payment_mode: 'daily' | 'flat' | 'hourly',
   rate: number ou null,
+  hourly_rate_primary: number ou null (valor por hora, apenas quando payment_mode for 'hourly'),
   notes: string ou null
 }
 
 REGRAS IMPORTANTES:
-- Se o valor mencionado tiver indicação explícita de ser por dia, usa payment_mode 'daily'. Caso contrário, assume 'flat'.
+- Se o valor tiver indicação explícita de ser por hora (ex: '12€/hora', '12/h', '15€ hora'), usa payment_mode 'hourly' e coloca o valor em hourly_rate_primary. Neste caso, rate deve ser null.
+- Se o valor tiver indicação explícita de ser por dia (ex: '140/dia', '140 por dia'), usa payment_mode 'daily' e coloca o valor em rate.
+- Se não houver indicação explícita, assume payment_mode 'flat' e coloca o valor em rate.
 - Se não conseguires ler uma data ou valor com confiança, usa null nesse campo — não inventes informação.
 - O ano atual é ${CURRENT_YEAR}. Se não houver ano visível na imagem, assume o ano atual.
 - Se a imagem não contiver informação relevante sobre trabalhos/eventos, devolve um array vazio [].
