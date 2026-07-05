@@ -895,10 +895,6 @@ export default function Jobs() {
     }
   }, [user])
 
-  function handleAddJob() {
-    navigate('/jobs/new')
-  }
-
   function handleJobClick(jobId) {
     navigate(`/jobs/${jobId}`)
   }
@@ -955,14 +951,6 @@ export default function Jobs() {
               <ExportIcon loading={exporting} />
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={handleAddJob}
-            aria-label="Adicionar trabalho"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-2xl text-accent transition-colors active:bg-surface"
-          >
-            +
-          </button>
         </div>
       </header>
 
