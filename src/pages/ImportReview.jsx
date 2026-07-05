@@ -41,7 +41,7 @@ function calcWorkDaysFromDates(startDate, endDate) {
 
 function calcExpectedAmount(card) {
   if (card.paymentMode === 'hourly') {
-    return roundMoney(parseNumber(card.hourlyRatePrimary))
+    return null
   }
 
   const parsedRate = parseNumber(card.rate)
