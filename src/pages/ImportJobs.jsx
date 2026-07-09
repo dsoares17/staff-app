@@ -119,6 +119,8 @@ function buildImportPrompt(text) {
   location: string ou null,
   start_date: string formato YYYY-MM-DD,
   end_date: string formato YYYY-MM-DD ou null se for o mesmo dia,
+  start_time: string formato HH:MM em 24h ou null,
+  end_time: string formato HH:MM em 24h ou null,
   payment_mode: 'daily' | 'flat' | 'hourly',
   rate: number ou null (valor por dia se payment_mode for 'daily', ou valor total se for 'flat'),
   hourly_rate_primary: number ou null (valor por hora, apenas quando payment_mode for 'hourly'),
@@ -131,6 +133,7 @@ REGRAS IMPORTANTES:
 - Se não houver indicação explícita, assume payment_mode 'flat' e coloca o valor em rate.
 - Se não conseguires determinar uma data específica, usa null nesse campo e não inventes datas.
 - O ano atual é ${CURRENT_YEAR}. Se não houver ano mencionado no texto, assume o ano atual.
+- Extrai horário de início e fim sempre que existir (ex: 'HORÁRIO 8h00 - 13h00', '8h-13h', '8:00 às 13:00', '9h'). Converte para formato 24h HH:MM: '8h00' → '08:00', '13h' → '13:00', '9h30' → '09:30'. Coloca em start_time e end_time. Se só existir uma hora, usa-a em start_time e deixa end_time a null. NUNCA escrevas horários no campo notes — usa sempre start_time e end_time.
 - Não inventes informação que não esteja no texto.
 
 Texto a analisar:
@@ -152,6 +155,8 @@ function buildFileImportPrompt(text, { currentYearOnly = false } = {}) {
   location: string ou null,
   start_date: string formato YYYY-MM-DD,
   end_date: string formato YYYY-MM-DD ou null se for o mesmo dia,
+  start_time: string formato HH:MM em 24h ou null,
+  end_time: string formato HH:MM em 24h ou null,
   payment_mode: 'daily' | 'flat' | 'hourly',
   rate: number ou null,
   hourly_rate_primary: number ou null (valor por hora, apenas quando payment_mode for 'hourly'),
@@ -165,6 +170,7 @@ REGRAS IMPORTANTES:
 - Se não houver indicação explícita, assume payment_mode 'flat' e coloca o valor em rate.
 - Se não conseguires determinar uma data específica, usa null nesse campo e não inventes datas.
 - O ano atual é ${CURRENT_YEAR}. Se não houver ano mencionado no texto, assume o ano atual.
+- Extrai horário de início e fim sempre que existir (ex: 'HORÁRIO 8h00 - 13h00', '8h-13h', '8:00 às 13:00', '9h'). Converte para formato 24h HH:MM: '8h00' → '08:00', '13h' → '13:00', '9h30' → '09:30'. Coloca em start_time e end_time. Se só existir uma hora, usa-a em start_time e deixa end_time a null. NUNCA escrevas horários no campo notes — usa sempre start_time e end_time.
 - Não inventes informação que não esteja no texto.
 - Extrai payment_status quando o ficheiro indicar estado de pagamento:
   - "pago" → 'pago'
@@ -188,6 +194,8 @@ function buildPhotoImportPrompt() {
   location: string ou null,
   start_date: string formato YYYY-MM-DD,
   end_date: string formato YYYY-MM-DD ou null,
+  start_time: string formato HH:MM em 24h ou null,
+  end_time: string formato HH:MM em 24h ou null,
   payment_mode: 'daily' | 'flat' | 'hourly',
   rate: number ou null,
   hourly_rate_primary: number ou null (valor por hora, apenas quando payment_mode for 'hourly'),
@@ -198,6 +206,7 @@ REGRAS IMPORTANTES:
 - Se o valor tiver indicação explícita de ser por hora (ex: '12€/hora', '12/h', '15€ hora'), usa payment_mode 'hourly' e coloca o valor em hourly_rate_primary. Neste caso, rate deve ser null.
 - Se o valor tiver indicação explícita de ser por dia (ex: '140/dia', '140 por dia'), usa payment_mode 'daily' e coloca o valor em rate.
 - Se não houver indicação explícita, assume payment_mode 'flat' e coloca o valor em rate.
+- Extrai horário de início e fim sempre que existir (ex: 'HORÁRIO 8h00 - 13h00', '8h-13h', '8:00 às 13:00', '9h'). Converte para formato 24h HH:MM: '8h00' → '08:00', '13h' → '13:00', '9h30' → '09:30'. Coloca em start_time e end_time. Se só existir uma hora, usa-a em start_time e deixa end_time a null. NUNCA escrevas horários no campo notes — usa sempre start_time e end_time.
 - Se não conseguires ler uma data ou valor com confiança, usa null nesse campo — não inventes informação.
 - O ano atual é ${CURRENT_YEAR}. Se não houver ano visível na imagem, assume o ano atual.
 - Se a imagem não contiver informação relevante sobre trabalhos/eventos, devolve um array vazio [].
