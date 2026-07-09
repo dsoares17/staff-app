@@ -208,7 +208,7 @@ function ReviewCard({ card, onChange }) {
 
       <div className="mt-3 space-y-3">
         <label className="block">
-          <span className="mb-1 block text-xs text-[#888888]">Organizador</span>
+          <span className="mb-1 block text-xs text-[#888888]">Cliente</span>
           <input
             className={fieldClass}
             style={fieldStyle}

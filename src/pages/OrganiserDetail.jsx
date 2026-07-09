@@ -207,7 +207,7 @@ export default function OrganiserDetail() {
 
       navigate('/organizadores', { replace: true })
     } catch (err) {
-      setError(err.message || 'Não foi possível guardar o organizador.')
+      setError(err.message || 'Não foi possível guardar o cliente.')
     } finally {
       setSaving(false)
     }
@@ -216,7 +216,7 @@ export default function OrganiserDetail() {
   async function handleDelete() {
     if (isNew || !id) return
 
-    const confirmed = window.confirm('Eliminar este organizador? Esta ação não pode ser desfeita.')
+    const confirmed = window.confirm('Eliminar este cliente? Esta ação não pode ser desfeita.')
     if (!confirmed) return
 
     setDeleting(true)
@@ -231,7 +231,7 @@ export default function OrganiserDetail() {
     setDeleting(false)
 
     if (deleteError) {
-      setError(deleteError.message || 'Não foi possível eliminar o organizador.')
+      setError(deleteError.message || 'Não foi possível eliminar o cliente.')
       return
     }
 
@@ -259,12 +259,12 @@ export default function OrganiserDetail() {
         >
           <BackIcon />
         </button>
-        <p className="text-sm text-[#888888]">Organizador não encontrado.</p>
+        <p className="text-sm text-[#888888]">Cliente não encontrado.</p>
       </div>
     )
   }
 
-  const headerTitle = isNew ? 'Novo organizador' : organiser?.name ?? 'Organizador'
+  const headerTitle = isNew ? 'Novo cliente' : organiser?.name ?? 'Cliente'
 
   return (
     <div className="min-h-screen bg-app pb-8">
@@ -388,7 +388,7 @@ export default function OrganiserDetail() {
                   disabled={deleting || saving}
                   className="mt-2 text-sm text-[#FF4444] disabled:opacity-60"
                 >
-                  {deleting ? 'A eliminar…' : 'Eliminar organizador'}
+                  {deleting ? 'A eliminar…' : 'Eliminar cliente'}
                 </button>
               ) : null}
             </div>

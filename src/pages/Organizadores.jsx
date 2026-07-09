@@ -88,11 +88,11 @@ export default function Organizadores() {
   return (
     <div className="min-h-full bg-app pb-4">
       <header className="flex items-center justify-between px-4 pb-2 pt-4">
-        <h1 className="text-xl font-semibold">Organizadores</h1>
+        <h1 className="text-xl font-semibold">Clientes</h1>
         <button
           type="button"
           onClick={() => navigate('/organizadores/new')}
-          aria-label="Adicionar organizador"
+          aria-label="Adicionar cliente"
           className="flex h-10 w-10 items-center justify-center rounded-full text-2xl text-accent transition-colors active:bg-surface"
         >
           +
@@ -104,7 +104,7 @@ export default function Organizadores() {
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Pesquisar organizador..."
+          placeholder="Pesquisar cliente..."
           className="w-full rounded-lg border px-3 py-2 text-sm text-fg outline-none transition focus:border-accent"
           style={{ backgroundColor: '#141414', borderColor: '#222222' }}
         />
@@ -134,20 +134,20 @@ export default function Organizadores() {
               </svg>
             }
             headline="A tua base de clientes"
-            subtext="Guarda os contactos dos organizadores com quem trabalhas. Quando criares um trabalho, podes associá-lo diretamente a um organizador."
+            subtext="Guarda os contactos dos clientes com quem trabalhas. Quando criares um trabalho, podes associá-lo diretamente a um cliente."
             actions={
               <button
                 type="button"
                 onClick={() => navigate('/organizadores/new')}
                 className="w-full rounded-xl bg-accent py-3 text-sm font-semibold text-[#000000]"
               >
-                Adicionar organizador
+                Adicionar cliente
               </button>
             }
           />
         ) : (
           <p className="px-4 py-12 text-center text-sm text-[#888888]">
-            Nenhum organizador encontrado.
+            Nenhum cliente encontrado.
           </p>
         )
       ) : (

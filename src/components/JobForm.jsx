@@ -264,7 +264,7 @@ function OrganiserComboField({
           <button
             type="button"
             onClick={onClearSelection}
-            aria-label="Remover organizador"
+            aria-label="Remover cliente"
             className="shrink-0 text-sm leading-none text-accent"
           >
             ×
@@ -287,7 +287,7 @@ function OrganiserComboField({
               onClick={handleStartCreate}
               className="block w-full px-3 py-2.5 text-left text-sm text-fg active:bg-[#1A1A1A]"
             >
-              Nenhum organizador encontrado — Criar &apos;{trimmedInput}&apos;?
+              Nenhum cliente encontrado — Criar &apos;{trimmedInput}&apos;?
             </button>
           ) : (
             <>
@@ -325,7 +325,7 @@ function OrganiserComboField({
           className="mt-3 space-y-3 rounded-lg border p-3"
           style={{ borderColor: '#222222', backgroundColor: '#1A1A1A' }}
         >
-          <p className="text-xs text-[#888888]">Novo organizador: {trimmedInput}</p>
+          <p className="text-xs text-[#888888]">Novo cliente: {trimmedInput}</p>
 
           <label className="block">
             <span className="mb-1 block text-xs text-[#888888]">NIF</span>
@@ -1449,7 +1449,7 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
       organiserId = resolved.organiserId
       organiserName = resolved.organiserName
     } catch (err) {
-      setOrganiserSubmitError(err.message || 'Não foi possível criar o organizador.')
+      setOrganiserSubmitError(err.message || 'Não foi possível criar o cliente.')
       return
     }
 
@@ -1586,7 +1586,7 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
         </div>
 
         <div className="block">
-          <span className="mb-1.5 block text-sm text-muted">Organizador</span>
+          <span className="mb-1.5 block text-sm text-muted">Cliente</span>
           <OrganiserComboField
             userId={user?.id}
             inputValue={organiserInput}
@@ -2113,7 +2113,7 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
             onChange={setAccommodationType}
             options={[
               { value: 'none', label: 'Não necessário' },
-              { value: 'included', label: 'Incluído pelo organizador' },
+              { value: 'included', label: 'Incluído pelo cliente' },
             ]}
           />
         </CollapsibleSection>

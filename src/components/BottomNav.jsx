@@ -42,7 +42,7 @@ const navTabs = [
     ),
   },
   {
-    label: 'Organizadores',
+    label: 'Clientes',
     path: '/organizadores',
     match: (pathname) => pathname.startsWith('/organizadores'),
     icon: (

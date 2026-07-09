@@ -1006,7 +1006,7 @@ export default function JobDetail() {
                     <span className="text-[#888888]">Transporte: </span>
                     <span className="text-fg">
                       {job.transport_type === 'provided'
-                        ? 'Fornecido pelo organizador'
+                        ? 'Fornecido pelo cliente'
                         : reimbursementTotal != null && reimbursementTotal > 0
                           ? `Reembolso — ${formatEuro(reimbursementTotal)} estimado`
                           : 'Reembolso'}
@@ -1022,7 +1022,7 @@ export default function JobDetail() {
                     <span className="text-[#888888]">Refeições: </span>
                     <span className="text-fg">
                       {job.meals_type === 'included'
-                        ? 'Incluído pelo organizador'
+                        ? 'Incluído pelo cliente'
                         : job.meals_rate != null && job.meals_count != null
                           ? `Subsídio — ${formatEuro(job.meals_rate)} × ${job.meals_count}${
                               mealsTotal != null && mealsTotal > 0
@@ -1040,7 +1040,7 @@ export default function JobDetail() {
                   <AccommodationIcon />
                   <p>
                     <span className="text-[#888888]">Alojamento: </span>
-                    <span className="text-fg">Incluído pelo organizador</span>
+                    <span className="text-fg">Incluído pelo cliente</span>
                   </p>
                 </div>
               ) : null}
