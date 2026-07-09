@@ -582,26 +582,21 @@ function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
               if (section.id === 'hoje' && sectionJobs.length === 0) return null
 
               if (section.id === 'proximos7Dias') {
+                if (sectionJobs.length === 0) return null
                 return (
                   <div key={section.id}>
                     <p className="px-4 py-2 text-xs uppercase tracking-wide text-[#888888]">
                       {section.label}
                     </p>
-                    {sectionJobs.length === 0 ? (
-                      <p className="px-4 text-sm text-[#888888]">
-                        Sem trabalhos nos próximos 7 dias
-                      </p>
-                    ) : (
-                      sectionJobs.map((job) => (
-                        <ListJobCard
-                          key={job.id}
-                          job={job}
-                          isTodaySection={false}
-                          onNavigate={handleJobClick}
-                          onPaymentUpdated={onPaymentUpdated}
-                        />
-                      ))
-                    )}
+                    {sectionJobs.map((job) => (
+                      <ListJobCard
+                        key={job.id}
+                        job={job}
+                        isTodaySection={false}
+                        onNavigate={handleJobClick}
+                        onPaymentUpdated={onPaymentUpdated}
+                      />
+                    ))}
                   </div>
                 )
               }
