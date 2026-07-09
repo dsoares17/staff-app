@@ -57,6 +57,41 @@ function readStoredJobsTab() {
   }
 }
 
+const CALENDAR_MONTH_STORAGE_KEY = 'erario:calendarMonth'
+const CALENDAR_DAY_STORAGE_KEY = 'erario:calendarSelectedDay'
+
+function readStoredCalendarMonth() {
+  try {
+    const stored = sessionStorage.getItem(CALENDAR_MONTH_STORAGE_KEY)
+    if (stored && /^\d{4}-\d{2}$/.test(stored)) {
+      const [year, month] = stored.split('-').map(Number)
+      return new Date(year, month - 1, 1)
+    }
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+function readStoredCalendarDay() {
+  try {
+    const stored = sessionStorage.getItem(CALENDAR_DAY_STORAGE_KEY)
+    if (stored && /^\d{4}-\d{2}-\d{2}$/.test(stored)) return stored
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+function clearStoredCalendarPosition() {
+  try {
+    sessionStorage.removeItem(CALENDAR_MONTH_STORAGE_KEY)
+    sessionStorage.removeItem(CALENDAR_DAY_STORAGE_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
 const JOB_STATUS = {
   pending: { label: 'Pendente', bg: '#FFB800', text: '#000000' },
   confirmed: { label: 'Confirmado', bg: '#00FF87', text: '#000000' },
@@ -557,6 +592,11 @@ function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
     navigate(`/jobs/${jobId}`, { state: { tab: activeTab } })
   }
 
+  function handleTabChange(tabId) {
+    if (tabId !== 'calendario') clearStoredCalendarPosition()
+    setSearchParams({ tab: tabId }, { replace: true })
+  }
+
   const proximosGroups = useMemo(() => getProximosGroups(jobs, today), [jobs, today])
   const concluidosJobs = useMemo(() => getConcluidosTabJobs(jobs, today), [jobs, today])
   const concluidosByMonth = useMemo(
@@ -575,7 +615,7 @@ function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
             <button
               key={tab.id}
               type="button"
-              onClick={() => setSearchParams({ tab: tab.id }, { replace: true })}
+              onClick={() => handleTabChange(tab.id)}
               className={`flex-1 py-2 text-sm ${
                 activeTab === tab.id
                   ? 'border-b-2 border-[#FFC700] font-medium text-[#FFC700]'
@@ -709,10 +749,12 @@ function JobsCalendar({ jobs, onJobClick }) {
   const navigate = useNavigate()
   const today = todayISO()
   const [calendarMonth, setCalendarMonth] = useState(() => {
+    const stored = readStoredCalendarMonth()
+    if (stored) return stored
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), 1)
   })
-  const [selectedDay, setSelectedDay] = useState(today)
+  const [selectedDay, setSelectedDay] = useState(() => readStoredCalendarDay() ?? today)
 
   const monthCells = useMemo(
     () => buildMonthGrid(calendarMonth.getFullYear(), calendarMonth.getMonth()),
@@ -723,6 +765,24 @@ function JobsCalendar({ jobs, onJobClick }) {
     () => getJobsForDay(jobs, selectedDay),
     [jobs, selectedDay]
   )
+
+  useEffect(() => {
+    try {
+      const year = calendarMonth.getFullYear()
+      const month = String(calendarMonth.getMonth() + 1).padStart(2, '0')
+      sessionStorage.setItem(CALENDAR_MONTH_STORAGE_KEY, `${year}-${month}`)
+    } catch {
+      /* ignore */
+    }
+  }, [calendarMonth])
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(CALENDAR_DAY_STORAGE_KEY, selectedDay)
+    } catch {
+      /* ignore */
+    }
+  }, [selectedDay])
 
   function goToPreviousMonth() {
     setCalendarMonth(
