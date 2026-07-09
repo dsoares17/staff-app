@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { ListJobCard, PaymentStatusBadge } from '../components/ListJobCard.jsx'
 import EmptyState from '../components/EmptyState.jsx'
@@ -814,6 +814,7 @@ function JobsCalendar({ jobs, onJobClick, onJobCreated }) {
   const [isAdding, setIsAdding] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const formRef = useRef(null)
 
   const weekCells = useMemo(() => {
     const base = new Date(`${selectedDay}T00:00:00`)
@@ -875,6 +876,12 @@ function JobsCalendar({ jobs, onJobClick, onJobCreated }) {
     }
   }, [selectedDay])
 
+  useEffect(() => {
+    if (isAdding && formRef.current) {
+      formRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [isAdding])
+
   function goToPreviousMonth() {
     setCalendarMonth(
       (current) => new Date(current.getFullYear(), current.getMonth() - 1, 1)
@@ -886,6 +893,8 @@ function JobsCalendar({ jobs, onJobClick, onJobCreated }) {
       (current) => new Date(current.getFullYear(), current.getMonth() + 1, 1)
     )
   }
+
+  const headerMonthDate = isAdding ? new Date(`${selectedDay}T00:00:00`) : calendarMonth
 
   return (
     <div className="mt-4">
@@ -915,7 +924,7 @@ function JobsCalendar({ jobs, onJobClick, onJobCreated }) {
         )}
 
         <h2 className="text-base font-medium text-fg">
-          {MONTH_NAMES[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}
+          {MONTH_NAMES[headerMonthDate.getMonth()]} {headerMonthDate.getFullYear()}
         </h2>
 
         {!isAdding ? (
@@ -1005,7 +1014,7 @@ function JobsCalendar({ jobs, onJobClick, onJobCreated }) {
 
       <div className="mt-4">
         {isAdding ? (
-          <div className="pb-24">
+          <div ref={formRef} className="pb-24">
             <div className="mb-2 flex items-center justify-between px-4">
               <h3 className="text-base font-semibold text-fg">Adicionar trabalho</h3>
               <button
@@ -1020,7 +1029,6 @@ function JobsCalendar({ jobs, onJobClick, onJobCreated }) {
               </button>
             </div>
             <JobForm
-              key={selectedDay}
               initialDate={selectedDay}
               submitLabel="Guardar trabalho"
               busy={saving}
