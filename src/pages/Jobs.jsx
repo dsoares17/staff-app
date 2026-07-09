@@ -182,17 +182,36 @@ function getJobSpanDays(job) {
   return diffDays > 0 ? diffDays : 1
 }
 
+function isWeekendISO(dayISO) {
+  const day = new Date(`${dayISO}T00:00:00`).getDay()
+  return day === 0 || day === 6
+}
+
+function getJobEarningDays(job) {
+  if (!job.start_date) return 0
+  const start = new Date(`${job.start_date}T00:00:00`)
+  const end = new Date(`${job.end_date || job.start_date}T00:00:00`)
+  let count = 0
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const day = d.getDay()
+    if (job.exclude_weekends && (day === 0 || day === 6)) continue
+    count += 1
+  }
+  return count > 0 ? count : 1
+}
+
 function isFlatPaymentJob(job) {
   return job.flat_total != null && Number(job.flat_total) > 0
 }
 
 function getJobDayContribution(job, dayISO) {
   if (!jobOverlapsDay(job, dayISO)) return 0
+  if (job.exclude_weekends && isWeekendISO(dayISO)) return 0
 
   if (isFlatPaymentJob(job)) {
-    const spanDays = getJobSpanDays(job)
-    if (spanDays <= 0) return 0
-    return roundMoney(Number(job.flat_total) / spanDays) ?? 0
+    const earningDays = getJobEarningDays(job)
+    if (earningDays <= 0) return 0
+    return roundMoney(Number(job.flat_total) / earningDays) ?? 0
   }
 
   const workRate = Number(job.work_rate)
