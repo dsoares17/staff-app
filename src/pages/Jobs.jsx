@@ -496,6 +496,65 @@ function SkeletonCard() {
   return <div className="mx-4 mb-2 h-14 animate-pulse rounded-xl bg-surface" />
 }
 
+function SectionHeader({ label, highlight = false }) {
+  return (
+    <p
+      className={`px-4 pb-3 pt-2 text-xs uppercase tracking-wide ${
+        highlight ? 'border-l-2 border-[#FFC700] pl-3 text-white' : 'text-[#888888]'
+      }`}
+    >
+      {label}
+    </p>
+  )
+}
+
+const WEEKDAYS_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
+
+function formatTodayHeroDate(job) {
+  if (!job.start_date) return 'Hoje'
+  const date = new Date(`${job.start_date}T00:00:00`)
+  return `Hoje · ${WEEKDAYS_FULL[date.getDay()]}, ${date.getDate()} ${MONTHS[date.getMonth()]}`
+}
+
+function TodayHeroCard({ job, onNavigate }) {
+  const total = getJobTotal(job)
+  const totalLabel = total != null ? formatEuro(total) : null
+  const statusDotColor = STATUS_DOT_COLORS[job.status] ?? STATUS_DOT_COLORS.pending
+  const isCancelled = job.status === 'cancelled'
+
+  return (
+    <button
+      type="button"
+      onClick={() => onNavigate(job.id)}
+      className={`mx-4 mb-2 block w-full rounded-xl bg-[#141414] p-3.5 text-left transition-opacity active:opacity-80 ${
+        isCancelled ? 'opacity-50' : ''
+      }`}
+      style={{ border: '1px solid rgba(255,199,0,0.35)' }}
+    >
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[11px] font-medium tracking-wide text-[#FFC700]">
+          {formatTodayHeroDate(job)}
+        </span>
+        <span
+          className="h-1.5 w-1.5 rounded-full"
+          style={{ backgroundColor: statusDotColor }}
+        />
+      </div>
+      <p className="truncate text-[17px] font-medium text-white">{job.event_name}</p>
+      <div className="mt-1.5 flex items-center justify-between">
+        {job.organiser_name ? (
+          <span className="truncate text-sm text-[#888888]">{job.organiser_name}</span>
+        ) : (
+          <span />
+        )}
+        {totalLabel ? (
+          <span className="text-[17px] font-medium text-[#FFC700]">{totalLabel}</span>
+        ) : null}
+      </div>
+    </button>
+  )
+}
+
 function StatusBadge({ status }) {
   const config = JOB_STATUS[status] ?? JOB_STATUS.pending
 
@@ -559,7 +618,7 @@ function MonthGroupedJobList({
 }) {
   return monthGroups.map((group) => (
     <div key={group.label}>
-      <p className="px-4 py-2 text-xs uppercase tracking-wide text-[#888888]">{group.label}</p>
+      <SectionHeader label={group.label} />
       {group.jobs.map((job) => (
         <ListJobCard
           key={job.id}
@@ -647,9 +706,7 @@ function JobsListView({ jobs, onJobClick, onPaymentUpdated, onJobCreated }) {
                 if (sectionJobs.length === 0) return null
                 return (
                   <div key={section.id}>
-                    <p className="px-4 py-2 text-xs uppercase tracking-wide text-[#888888]">
-                      {section.label}
-                    </p>
+                    <SectionHeader label={section.label} />
                     {sectionJobs.map((job) => (
                       <ListJobCard
                         key={job.id}
@@ -665,24 +722,8 @@ function JobsListView({ jobs, onJobClick, onPaymentUpdated, onJobCreated }) {
 
               return (
                 <div key={section.id}>
-                  <p
-                    className={`px-4 py-2 text-xs uppercase tracking-wide ${
-                      section.highlight
-                        ? 'border-l-2 border-[#FFC700] pl-3 text-white'
-                        : 'text-[#888888]'
-                    }`}
-                  >
-                    {section.label}
-                  </p>
-
                   {sectionJobs.map((job) => (
-                    <ListJobCard
-                      key={job.id}
-                      job={job}
-                      isTodaySection={section.id === 'hoje'}
-                      onNavigate={handleJobClick}
-                      onPaymentUpdated={onPaymentUpdated}
-                    />
+                    <TodayHeroCard key={job.id} job={job} onNavigate={handleJobClick} />
                   ))}
                 </div>
               )
