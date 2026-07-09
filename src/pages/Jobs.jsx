@@ -214,6 +214,15 @@ function getJobDayContribution(job, dayISO) {
     return roundMoney(Number(job.flat_total) / earningDays) ?? 0
   }
 
+  if (job.hourly_rate_primary != null && Number(job.hourly_rate_primary) > 0) {
+    const payment = getJobPayment(job)
+    const expected = Number(payment?.expected_amount)
+    if (!Number.isFinite(expected) || expected <= 0) return 0
+    const earningDays = getJobEarningDays(job)
+    if (earningDays <= 0) return 0
+    return roundMoney(expected / earningDays) ?? 0
+  }
+
   const workRate = Number(job.work_rate)
   if (!Number.isFinite(workRate) || workRate <= 0) return 0
   return roundMoney(workRate) ?? 0
