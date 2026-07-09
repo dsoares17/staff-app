@@ -58,3 +58,13 @@
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
+  margin: 0;
+}
