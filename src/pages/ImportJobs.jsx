@@ -174,10 +174,11 @@ REGRAS IMPORTANTES:
 - Não inventes informação que não esteja no texto.
 - Extrai payment_status quando o ficheiro indicar estado de pagamento:
   - "pago" → 'pago'
-  - "por pagar" → 'em_atraso'
+  - "por pagar" → 'faturado'
   - "por faturar" → 'por_faturar'
   - "por confirmar" → null (trabalho ainda por confirmar)
   - Se não houver informação de estado → null
+  - Nunca uses 'em_atraso' — esse estado é definido apenas manualmente pelo utilizador.
 
 Texto a analisar:
 ${text}
