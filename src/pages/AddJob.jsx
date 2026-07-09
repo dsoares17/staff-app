@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
-import { supabase } from '../lib/supabaseClient.js'
+import { createJobFromPayload } from '../lib/jobsApi.js'
 import JobForm from '../components/JobForm.jsx'
 
 function BackIcon() {
@@ -42,87 +42,21 @@ export default function AddJob() {
     setBusy(true)
 
     try {
-      if (payload.recurring) {
-        const seriesId = crypto.randomUUID()
-        const failures = []
-        let successCount = 0
-
-        for (const entry of payload.dateEntries) {
-          try {
-            const { data: job, error: jobError } = await supabase
-              .from('staff_app_jobs')
-              .insert({
-                staff_app_user_id: user.id,
-                status: 'confirmed',
-                ...payload.jobData,
-                start_date: entry.startDate,
-                end_date: entry.endDate,
-                series_id: seriesId,
-              })
-              .select('id')
-              .single()
-
-            if (jobError) throw jobError
-
-            const { error: paymentError } = await supabase.from('staff_app_payments').insert({
-              staff_app_user_id: user.id,
-              job_id: job.id,
-              status: 'por_faturar',
-              expected_amount: payload.expectedAmount,
-            })
-
-            if (paymentError) throw paymentError
-
-            successCount += 1
-          } catch (err) {
-            const label = entry.endDate
-              ? `${entry.startDate} — ${entry.endDate}`
-              : entry.startDate
-            failures.push(`${label}: ${err.message || 'erro desconhecido'}`)
-          }
-        }
-
-        if (successCount === 0) {
+      const result = await createJobFromPayload(user.id, payload)
+      if (result.recurring) {
+        if (result.successCount === 0) {
           throw new Error(
-            failures.length > 0
-              ? failures.join(' · ')
+            result.failures.length > 0
+              ? result.failures.join(' · ')
               : 'Não foi possível guardar os trabalhos.'
           )
         }
-
-        if (failures.length > 0) {
+        if (result.failures.length > 0) {
           window.alert(
-            `${successCount} de ${payload.dateEntries.length} trabalhos criados. Falhas: ${failures.join(' · ')}`
+            `${result.successCount} de ${result.total} trabalhos criados. Falhas: ${result.failures.join(' · ')}`
           )
         }
-
-        navigate('/jobs', { replace: true })
-        return
       }
-
-      const { jobData, expectedAmount } = payload
-
-      const { data: job, error: jobError } = await supabase
-        .from('staff_app_jobs')
-        .insert({
-          staff_app_user_id: user.id,
-          status: 'confirmed',
-          ...jobData,
-        })
-        .select('id')
-        .single()
-
-      if (jobError) throw jobError
-
-      const { error: paymentError } = await supabase.from('staff_app_payments').insert({
-        staff_app_user_id: user.id,
-        job_id: job.id,
-        status: 'por_faturar',
-        expected_amount: expectedAmount,
-      })
-
-      if (paymentError) throw paymentError
-
       navigate('/jobs', { replace: true })
     } catch (err) {
       setError(err.message || 'Não foi possível guardar o trabalho.')
