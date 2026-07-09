@@ -421,6 +421,10 @@ export default function JobDetail() {
     updatePaymentStatus({ status: 'em_atraso' })
   }
 
+  function handleUnmarkFaturado() {
+    updatePaymentStatus({ status: 'por_faturar', invoice_date: null })
+  }
+
   async function uploadInvoiceFile(file) {
     if (!user?.id || !payment?.id || !id) return
 
@@ -969,6 +973,17 @@ export default function JobDetail() {
                     className="mx-auto mt-3 block text-xs text-[#888888] underline disabled:opacity-60"
                   >
                     Marcar como em atraso
+                  </button>
+                ) : null}
+
+                {payment.status === 'faturado' ? (
+                  <button
+                    type="button"
+                    disabled={updatingStatus}
+                    onClick={handleUnmarkFaturado}
+                    className="mx-auto mt-3 block text-xs text-[#888888] underline disabled:opacity-60"
+                  >
+                    Desmarcar como faturado
                   </button>
                 ) : null}
               </>
