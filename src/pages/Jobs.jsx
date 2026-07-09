@@ -523,35 +523,37 @@ function TodayHeroCard({ job, onNavigate }) {
   const isCancelled = job.status === 'cancelled'
 
   return (
-    <button
-      type="button"
-      onClick={() => onNavigate(job.id)}
-      className={`mx-4 mb-2 block w-full rounded-xl bg-[#141414] p-3.5 text-left transition-opacity active:opacity-80 ${
-        isCancelled ? 'opacity-50' : ''
-      }`}
-      style={{ border: '1px solid rgba(255,199,0,0.35)' }}
-    >
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-[11px] font-medium tracking-wide text-[#FFC700]">
-          {formatTodayHeroDate(job)}
-        </span>
-        <span
-          className="h-1.5 w-1.5 rounded-full"
-          style={{ backgroundColor: statusDotColor }}
-        />
-      </div>
-      <p className="truncate text-[17px] font-medium text-white">{job.event_name}</p>
-      <div className="mt-1.5 flex items-center justify-between">
-        {job.organiser_name ? (
-          <span className="truncate text-sm text-[#888888]">{job.organiser_name}</span>
-        ) : (
-          <span />
-        )}
-        {totalLabel ? (
-          <span className="text-[17px] font-medium text-[#FFC700]">{totalLabel}</span>
-        ) : null}
-      </div>
-    </button>
+    <div className="mx-4 mb-2">
+      <button
+        type="button"
+        onClick={() => onNavigate(job.id)}
+        className={`block w-full rounded-xl bg-[#141414] p-3.5 text-left transition-opacity active:opacity-80 ${
+          isCancelled ? 'opacity-50' : ''
+        }`}
+        style={{ border: '1px solid rgba(255,199,0,0.35)' }}
+      >
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-[11px] font-medium tracking-wide text-[#FFC700]">
+            {formatTodayHeroDate(job)}
+          </span>
+          <span
+            className="h-1.5 w-1.5 rounded-full"
+            style={{ backgroundColor: statusDotColor }}
+          />
+        </div>
+        <p className="truncate text-[17px] font-medium text-white">{job.event_name}</p>
+        <div className="mt-1.5 flex items-center justify-between">
+          {job.organiser_name ? (
+            <span className="truncate text-sm text-[#888888]">{job.organiser_name}</span>
+          ) : (
+            <span />
+          )}
+          {totalLabel ? (
+            <span className="text-[17px] font-medium text-[#FFC700]">{totalLabel}</span>
+          ) : null}
+        </div>
+      </button>
+    </div>
   )
 }
 
