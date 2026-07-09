@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { ListJobCard, PaymentStatusBadge } from '../components/ListJobCard.jsx'
 import EmptyState from '../components/EmptyState.jsx'
+import JobForm from '../components/JobForm.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import {
   applyPaymentPatchToJobs,
@@ -14,6 +15,7 @@ import {
   todayISO,
 } from '../lib/jobUtils.js'
 import { formatEuro, roundMoney } from '../lib/money.js'
+import { createJobFromPayload } from '../lib/jobsApi.js'
 import { supabase } from '../lib/supabaseClient.js'
 
 const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -572,7 +574,7 @@ function MonthGroupedJobList({
   ))
 }
 
-function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
+function JobsListView({ jobs, onJobClick, onPaymentUpdated, onJobCreated }) {
   const today = todayISO()
   const [searchParams, setSearchParams] = useSearchParams()
   const location = useLocation()
@@ -689,7 +691,7 @@ function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
         ) : null}
 
         {activeTab === 'calendario' ? (
-          <JobsCalendar jobs={jobs} onJobClick={handleJobClick} />
+          <JobsCalendar jobs={jobs} onJobClick={handleJobClick} onJobCreated={onJobCreated} />
         ) : null}
 
         {activeTab === 'concluidos' ? (
@@ -745,8 +747,7 @@ function ExportIcon({ loading }) {
   )
 }
 
-function JobsCalendar({ jobs, onJobClick }) {
-  const navigate = useNavigate()
+function JobsCalendar({ jobs, onJobClick, onJobCreated }) {
   const today = todayISO()
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const stored = readStoredCalendarMonth()
@@ -765,6 +766,53 @@ function JobsCalendar({ jobs, onJobClick }) {
     () => getJobsForDay(jobs, selectedDay),
     [jobs, selectedDay]
   )
+
+  const { user } = useAuth()
+  const [isAdding, setIsAdding] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+
+  const weekCells = useMemo(() => {
+    const base = new Date(`${selectedDay}T00:00:00`)
+    const start = new Date(base)
+    start.setDate(base.getDate() - base.getDay())
+    const cells = []
+    for (let i = 0; i < 7; i += 1) {
+      const date = new Date(start)
+      date.setDate(start.getDate() + i)
+      cells.push({ date, isCurrentMonth: true })
+    }
+    return cells
+  }, [selectedDay])
+
+  const cellsToRender = isAdding ? weekCells : monthCells
+
+  async function handleInlineSubmit(payload) {
+    if (!user?.id) return
+    setSaveError('')
+    setSaving(true)
+    try {
+      const result = await createJobFromPayload(user.id, payload)
+      if (result.recurring && result.successCount === 0) {
+        throw new Error(
+          result.failures.length > 0
+            ? result.failures.join(' · ')
+            : 'Não foi possível guardar os trabalhos.'
+        )
+      }
+      if (result.recurring && result.failures.length > 0) {
+        window.alert(
+          `${result.successCount} de ${result.total} trabalhos criados. Falhas: ${result.failures.join(' · ')}`
+        )
+      }
+      setIsAdding(false)
+      if (onJobCreated) await onJobCreated()
+    } catch (err) {
+      setSaveError(err.message || 'Não foi possível guardar o trabalho.')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   useEffect(() => {
     try {
@@ -799,49 +847,57 @@ function JobsCalendar({ jobs, onJobClick }) {
   return (
     <div className="mt-4">
       <div className="mb-4 flex items-center justify-between">
-        <button
-          type="button"
-          onClick={goToPreviousMonth}
-          aria-label="Mês anterior"
-          className="flex h-9 w-9 items-center justify-center rounded-full text-[#888888] active:bg-surface"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="h-5 w-5"
+        {!isAdding ? (
+          <button
+            type="button"
+            onClick={goToPreviousMonth}
+            aria-label="Mês anterior"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-[#888888] active:bg-surface"
           >
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-        </button>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-5 w-5"
+            >
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          </button>
+        ) : (
+          <span className="h-9 w-9" />
+        )}
 
         <h2 className="text-base font-medium text-fg">
           {MONTH_NAMES[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}
         </h2>
 
-        <button
-          type="button"
-          onClick={goToNextMonth}
-          aria-label="Mês seguinte"
-          className="flex h-9 w-9 items-center justify-center rounded-full text-[#888888] active:bg-surface"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="h-5 w-5"
+        {!isAdding ? (
+          <button
+            type="button"
+            onClick={goToNextMonth}
+            aria-label="Mês seguinte"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-[#888888] active:bg-surface"
           >
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
-        </button>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-5 w-5"
+            >
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </button>
+        ) : (
+          <span className="h-9 w-9" />
+        )}
       </div>
 
       <div className="mb-2 grid grid-cols-7 gap-1">
@@ -856,7 +912,7 @@ function JobsCalendar({ jobs, onJobClick }) {
       </div>
 
       <div className="grid grid-cols-7 gap-1">
-        {monthCells.map((cell) => {
+        {cellsToRender.map((cell) => {
           const dayISO = toISODate(cell.date)
           const isToday = dayISO === today
           const isSelected = dayISO === selectedDay
@@ -905,12 +961,36 @@ function JobsCalendar({ jobs, onJobClick }) {
       </div>
 
       <div className="mt-4">
-        {selectedDayJobs.length === 0 ? (
+        {isAdding ? (
+          <div className="pb-24">
+            <div className="mb-2 flex items-center justify-between px-4">
+              <h3 className="text-base font-semibold text-fg">Adicionar trabalho</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAdding(false)
+                  setSaveError('')
+                }}
+                className="text-sm text-[#888888] underline"
+              >
+                Cancelar
+              </button>
+            </div>
+            <JobForm
+              key={selectedDay}
+              initialDate={selectedDay}
+              submitLabel="Guardar trabalho"
+              busy={saving}
+              error={saveError}
+              onSubmit={handleInlineSubmit}
+            />
+          </div>
+        ) : selectedDayJobs.length === 0 ? (
           <div className="py-4 text-center">
             <p className="text-sm text-[#888888]">Sem trabalhos neste dia</p>
             <button
               type="button"
-              onClick={() => navigate(`/jobs/new?date=${selectedDay}`)}
+              onClick={() => setIsAdding(true)}
               className="mt-3 text-sm font-medium text-accent underline"
             >
               + Adicionar trabalho
@@ -921,7 +1001,7 @@ function JobsCalendar({ jobs, onJobClick }) {
             <div className="flex items-center justify-end">
               <button
                 type="button"
-                onClick={() => navigate(`/jobs/new?date=${selectedDay}`)}
+                onClick={() => setIsAdding(true)}
                 className="text-sm text-accent underline"
               >
                 + Adicionar
@@ -959,44 +1039,36 @@ export default function Jobs() {
     return () => window.clearTimeout(timer)
   }, [exportMessage])
 
-  useEffect(() => {
-    if (authLoading) return undefined
+  const fetchJobs = useCallback(async () => {
     if (!user) {
-      setLoading(false)
       setJobs([])
-      return undefined
-    }
-
-    let active = true
-
-    async function fetchJobs() {
-      setLoading(true)
-
-      const { data, error } = await supabase
-        .from('staff_app_jobs')
-        .select('*, staff_app_payments(id, status, expected_amount, invoice_date)')
-        .eq('staff_app_user_id', user.id)
-        .order('start_date', { ascending: false })
-
-      if (!active) return
-
-      if (error) {
-        console.error('Erro ao carregar trabalhos:', error.message)
-        setJobs([])
-      } else {
-        const updatedJobs = await autoCompletePastJobs(data ?? [])
-        setJobs(updatedJobs)
-      }
-
       setLoading(false)
+      return
     }
 
-    fetchJobs()
+    setLoading(true)
 
-    return () => {
-      active = false
+    const { data, error } = await supabase
+      .from('staff_app_jobs')
+      .select('*, staff_app_payments(id, status, expected_amount, invoice_date)')
+      .eq('staff_app_user_id', user.id)
+      .order('start_date', { ascending: false })
+
+    if (error) {
+      console.error('Erro ao carregar trabalhos:', error.message)
+      setJobs([])
+    } else {
+      const updatedJobs = await autoCompletePastJobs(data ?? [])
+      setJobs(updatedJobs)
     }
+
+    setLoading(false)
   }, [user])
+
+  useEffect(() => {
+    if (authLoading) return
+    fetchJobs()
+  }, [authLoading, fetchJobs])
 
   function handleJobClick(jobId) {
     navigate(`/jobs/${jobId}`)
@@ -1110,6 +1182,7 @@ export default function Jobs() {
           jobs={jobs}
           onJobClick={handleJobClick}
           onPaymentUpdated={handlePaymentUpdated}
+          onJobCreated={fetchJobs}
         />
       )}
     </div>
