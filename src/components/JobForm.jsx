@@ -82,6 +82,73 @@ function escapeIlike(value) {
   return value.replace(/[%_\\]/g, '\\$&')
 }
 
+function RoleComboField({ value, options, onChange }) {
+  const containerRef = useRef(null)
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+
+  const filteredOptions = useMemo(() => {
+    const query = value.trim().toLowerCase()
+    if (!query) return options
+    return options.filter((option) => option.toLowerCase().includes(query))
+  }, [options, value])
+
+  const showDropdown = dropdownOpen && filteredOptions.length > 0
+
+  useEffect(() => {
+    function handlePointerDown(event) {
+      if (!containerRef.current?.contains(event.target)) {
+        setDropdownOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('touchstart', handlePointerDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('touchstart', handlePointerDown)
+    }
+  }, [])
+
+  return (
+    <div ref={containerRef} className="relative">
+      <input
+        className={fieldClass}
+        style={fieldStyle}
+        type="text"
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value)
+          setDropdownOpen(true)
+        }}
+        onFocus={() => setDropdownOpen(true)}
+        autoComplete="off"
+      />
+
+      {showDropdown ? (
+        <div
+          className="absolute left-0 right-0 z-20 mt-1 overflow-hidden rounded-lg border shadow-lg"
+          style={{ backgroundColor: '#141414', borderColor: '#222222' }}
+        >
+          {filteredOptions.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => {
+                onChange(option)
+                setDropdownOpen(false)
+              }}
+              className="block w-full border-b px-3 py-2.5 text-left text-sm text-fg last:border-b-0 active:bg-[#1A1A1A]"
+              style={{ borderColor: '#222222' }}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function OrganiserComboField({
   userId,
   inputValue,
@@ -768,6 +835,7 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
   })
   const [organiserSubmitError, setOrganiserSubmitError] = useState('')
   const [role, setRole] = useState('')
+  const [roleOptions, setRoleOptions] = useState([])
   const [location, setLocation] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
@@ -946,6 +1014,48 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
       active = false
     }
   }, [isAddMode, user?.id, debouncedEventName])
+
+  useEffect(() => {
+    if (!user?.id) return undefined
+    let active = true
+
+    async function fetchRoleOptions() {
+      const [jobsRes, profileRes] = await Promise.all([
+        supabase
+          .from('staff_app_jobs')
+          .select('role')
+          .eq('staff_app_user_id', user.id)
+          .not('role', 'is', null),
+        supabase
+          .from('staff_app_users')
+          .select('roles')
+          .eq('id', user.id)
+          .maybeSingle(),
+      ])
+      if (!active) return
+
+      const fromJobs = (jobsRes.data ?? [])
+        .map((row) => row.role)
+        .filter((value) => typeof value === 'string' && value.trim())
+      const rawProfile = profileRes.data?.roles
+      const fromProfile = Array.isArray(rawProfile)
+        ? rawProfile.filter((value) => typeof value === 'string' && value.trim())
+        : []
+
+      const seen = new Map()
+      for (const value of [...fromProfile, ...fromJobs]) {
+        const key = value.trim().toLowerCase()
+        if (key && !seen.has(key)) seen.set(key, value.trim())
+      }
+      setRoleOptions([...seen.values()])
+    }
+
+    fetchRoleOptions()
+
+    return () => {
+      active = false
+    }
+  }, [user?.id])
 
   useEffect(() => {
     if (!initialJob) return
@@ -1496,13 +1606,7 @@ export default function JobForm({ initialJob, submitLabel, busy, error, onSubmit
 
         <label className="block">
           <span className="mb-1.5 block text-sm text-muted">Função</span>
-          <input
-            className={fieldClass}
-            style={fieldStyle}
-            type="text"
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-          />
+          <RoleComboField value={role} options={roleOptions} onChange={setRole} />
         </label>
 
         <label className="block">
