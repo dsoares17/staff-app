@@ -46,6 +46,17 @@ const LIST_TABS = [
   { id: 'concluidos', label: 'Concluídos' },
 ]
 
+const JOBS_TAB_STORAGE_KEY = 'erario:jobsActiveTab'
+
+function readStoredJobsTab() {
+  try {
+    const stored = sessionStorage.getItem(JOBS_TAB_STORAGE_KEY)
+    return LIST_TABS.some((tab) => tab.id === stored) ? stored : null
+  } catch {
+    return null
+  }
+}
+
 const JOB_STATUS = {
   pending: { label: 'Pendente', bg: '#FFB800', text: '#000000' },
   confirmed: { label: 'Confirmado', bg: '#00FF87', text: '#000000' },
@@ -531,7 +542,16 @@ function JobsListView({ jobs, onJobClick, onPaymentUpdated }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const location = useLocation()
   const navigate = useNavigate()
-  const activeTab = searchParams.get('tab') ?? location.state?.tab ?? 'proximos'
+  const activeTab =
+    searchParams.get('tab') ?? location.state?.tab ?? readStoredJobsTab() ?? 'proximos'
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(JOBS_TAB_STORAGE_KEY, activeTab)
+    } catch {
+      /* sessionStorage unavailable — ignore */
+    }
+  }, [activeTab])
 
   function handleJobClick(jobId) {
     navigate(`/jobs/${jobId}`, { state: { tab: activeTab } })
@@ -866,7 +886,7 @@ export default function Jobs() {
   const { user, loading: authLoading } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const activeTab = searchParams.get('tab') ?? 'proximos'
+  const activeTab = searchParams.get('tab') ?? readStoredJobsTab() ?? 'proximos'
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
