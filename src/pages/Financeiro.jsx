@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ListJobCard } from '../components/ListJobCard.jsx'
 import EmptyState from '../components/EmptyState.jsx'
@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext.jsx'
 import { applyPaymentPatchToJobs, getJobPayment } from '../lib/jobUtils.js'
 import { formatEuroWhole, roundMoney } from '../lib/money.js'
 import { supabase } from '../lib/supabaseClient.js'
+import { ValuesHiddenContext, MONEY_MASK } from '../context/ValuesHiddenContext.js'
 
 const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 const CURRENT_YEAR = new Date().getFullYear()
@@ -49,6 +50,40 @@ function getJobName(expense) {
 
 function formatEuro(amount) {
   return formatEuroWhole(amount)
+}
+
+const VALUES_HIDDEN_STORAGE_KEY = 'erario-financeiro-values-hidden'
+
+function Money({ value }) {
+  const hidden = useContext(ValuesHiddenContext)
+  return <>{hidden ? MONEY_MASK : formatEuro(value)}</>
+}
+
+function EyeIcon({ hidden }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-5 w-5"
+    >
+      {hidden ? (
+        <>
+          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+          <line x1="1" y1="1" x2="23" y2="23" />
+        </>
+      ) : (
+        <>
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+          <circle cx="12" cy="12" r="3" />
+        </>
+      )}
+    </svg>
+  )
 }
 
 function calcJobTotal(job) {
@@ -123,7 +158,7 @@ function MonthSection({ group, defaultExpanded, onNavigate, onPaymentUpdated }) 
         </span>
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-[#FFC700]">
-            {formatEuro(roundMoney(monthTotal) ?? 0)}
+            <Money value={roundMoney(monthTotal) ?? 0} />
           </span>
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -370,23 +405,23 @@ function PagamentosPanel({ user, authLoading }) {
             <div className="rounded-xl bg-surface p-3">
               <p className="text-xs text-[#888888]">Recebido</p>
               <p className="mt-1 text-base font-semibold text-[#00FF87]">
-                {formatEuro(summary.received)}
+                <Money value={summary.received} />
               </p>
             </div>
             <div className="rounded-xl bg-surface p-3">
               <p className="text-xs text-[#888888]">A faturar</p>
               <p className="mt-1 text-base font-semibold text-fg">
-                {formatEuro(summary.toInvoice)}
+                <Money value={summary.toInvoice} />
               </p>
             </div>
             <div className="rounded-xl bg-surface p-3">
               <p className="text-xs text-[#888888]">Faturado</p>
               <p className="mt-1 text-base font-semibold text-[#5B8DEF]">
-                {formatEuro(summary.invoiced)}
+                <Money value={summary.invoiced} />
               </p>
               {summary.overdue > 0 ? (
                 <p className="mt-0.5 text-xs text-[#FF4444]">
-                  {formatEuro(summary.overdue)} em atraso
+                  <Money value={summary.overdue} /> em atraso
                 </p>
               ) : null}
             </div>
@@ -728,7 +763,7 @@ function DespesasPanel({ user, authLoading }) {
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <p className="text-sm font-medium text-fg">{formatEuro(expense.amount)}</p>
+          <p className="text-sm font-medium text-fg"><Money value={expense.amount} /></p>
           <ReimbursedPill
             reimbursed={expense.reimbursed}
             onToggle={(e) => handleToggleReimbursed(expense, e)}
@@ -756,18 +791,18 @@ function DespesasPanel({ user, authLoading }) {
           <div className="mb-4 grid grid-cols-3 gap-2 px-4">
             <div className="rounded-xl bg-surface p-3">
               <p className="text-xs text-[#888888]">Total</p>
-              <p className="mt-1 text-base font-semibold text-fg">{formatEuro(summary.total)}</p>
+              <p className="mt-1 text-base font-semibold text-fg"><Money value={summary.total} /></p>
             </div>
             <div className="rounded-xl bg-surface p-3">
               <p className="text-xs text-[#888888]">Reembolsado</p>
               <p className="mt-1 text-base font-semibold text-[#00FF87]">
-                {formatEuro(summary.reimbursed)}
+                <Money value={summary.reimbursed} />
               </p>
             </div>
             <div className="rounded-xl bg-surface p-3">
               <p className="text-xs text-[#888888]">Pendente</p>
               <p className="mt-1 text-base font-semibold text-[#FF4444]">
-                {formatEuro(summary.pending)}
+                <Money value={summary.pending} />
               </p>
             </div>
           </div>
@@ -786,7 +821,7 @@ function DespesasPanel({ user, authLoading }) {
                 >
                   <div className="min-w-0 pr-3">
                     <p className="truncate text-sm font-medium text-fg">{expense.description}</p>
-                    <p className="mt-0.5 text-xs text-[#888888]">{formatEuro(expense.amount)}</p>
+                    <p className="mt-0.5 text-xs text-[#888888]"><Money value={expense.amount} /></p>
                   </div>
                   <button
                     type="button"
@@ -913,7 +948,7 @@ function DespesasPanel({ user, authLoading }) {
                 <div className="mb-3">
                   <p className="text-sm font-medium text-fg">{selectedExpense.description}</p>
                   <p className="mt-1 text-xs text-[#888888]">
-                    {formatEuro(selectedExpense.amount)}
+                    <Money value={selectedExpense.amount} />
                   </p>
                 </div>
 
@@ -1094,12 +1129,37 @@ function DespesasPanel({ user, authLoading }) {
 export default function Financeiro() {
   const { user, loading: authLoading } = useAuth()
   const [activeTab, setActiveTab] = useState('pagamentos')
+  const [valuesHidden, setValuesHidden] = useState(() => {
+    try {
+      return localStorage.getItem(VALUES_HIDDEN_STORAGE_KEY) === 'true'
+    } catch {
+      return false
+    }
+  })
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VALUES_HIDDEN_STORAGE_KEY, valuesHidden ? 'true' : 'false')
+    } catch {
+      // Storage may be unavailable (private mode) - ignore.
+    }
+  }, [valuesHidden])
 
   return (
-    <div className="min-h-full bg-app">
-      <header className="px-4 pb-2 pt-4">
-        <h1 className="text-xl font-semibold">Financeiro</h1>
-      </header>
+    <ValuesHiddenContext.Provider value={valuesHidden}>
+      <div className="min-h-full bg-app">
+        <header className="flex items-center justify-between px-4 pb-2 pt-4">
+          <h1 className="text-xl font-semibold">Financeiro</h1>
+          <button
+            type="button"
+            onClick={() => setValuesHidden((current) => !current)}
+            aria-label={valuesHidden ? 'Mostrar valores' : 'Ocultar valores'}
+            aria-pressed={valuesHidden}
+            className="-mr-2 flex h-10 w-10 items-center justify-center text-[#888888] transition-colors active:text-fg"
+          >
+            <EyeIcon hidden={valuesHidden} />
+          </button>
+        </header>
 
       <div className="mb-4 grid grid-cols-2 gap-2 px-4">
         <button
@@ -1131,6 +1191,7 @@ export default function Financeiro() {
       ) : (
         <DespesasPanel user={user} authLoading={authLoading} />
       )}
-    </div>
+      </div>
+    </ValuesHiddenContext.Provider>
   )
 }

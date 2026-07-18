@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useContext, useState } from 'react'
 import { formatEuro, roundMoney } from '../lib/money.js'
+import { ValuesHiddenContext, MONEY_MASK } from '../context/ValuesHiddenContext.js'
 import {
   formatDateRange,
   formatTimeRange,
@@ -67,7 +68,9 @@ export function ListJobCard({
   const weekdayAbbrev = getWeekdayAbbrev(startDate)
   const highlightDateBlock = isTodaySection
   const total = getJobTotal(job)
-  const totalLabel = total != null ? formatEuro(total) : null
+  const valuesHidden = useContext(ValuesHiddenContext)
+  const totalLabel =
+    total != null ? (valuesHidden ? MONEY_MASK : formatEuro(total)) : null
   const payment = getJobPayment(job)
   const timeLabel = formatTimeRange(job.start_time, job.end_time)
   const compactTimeLabel = job.start_time ? timeLabel : null
