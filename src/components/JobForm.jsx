@@ -503,8 +503,9 @@ function calcTimeSpanHours(startTime, endTime) {
   }
 
   const startMinutes = sh * 60 + sm
-  const endMinutes = eh * 60 + em
-  if (endMinutes <= startMinutes) return null
+  let endMinutes = eh * 60 + em
+  // End earlier than start means the shift crosses midnight (ends the next day, e.g. 17:00 -> 00:00)
+  if (endMinutes < startMinutes) endMinutes += 24 * 60
 
   const hours = (endMinutes - startMinutes) / 60
   return hours > 0 ? hours : null
